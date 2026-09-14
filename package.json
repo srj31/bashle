@@ -1,0 +1,128 @@
+{
+  "name": "bashle",
+  "displayName": "Bashle \u2014 Live Bash",
+  "description": "A live programming environment for bash scripts: see expansions, exit codes and filesystem effects inline, sandboxed.",
+  "version": "0.1.0",
+  "publisher": "srj31",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Debuggers",
+    "Programming Languages",
+    "Testing"
+  ],
+  "keywords": [
+    "bash",
+    "shell",
+    "live",
+    "trace",
+    "sandbox"
+  ],
+  "icon": "media/logo.png",
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onLanguage:shellscript"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "bashle.run",
+        "title": "Bashle: Run probes in this file",
+        "icon": "$(play)"
+      },
+      {
+        "command": "bashle.showPanel",
+        "title": "Bashle: Show panel"
+      },
+      {
+        "command": "bashle.clear",
+        "title": "Bashle: Clear annotations"
+      },
+      {
+        "command": "bashle.drillDown",
+        "title": "Bashle: Inspect this line"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "bashle.run",
+        "key": "ctrl+alt+r",
+        "mac": "cmd+alt+r",
+        "when": "editorLangId == shellscript"
+      },
+      {
+        "command": "bashle.drillDown",
+        "key": "ctrl+alt+i",
+        "mac": "cmd+alt+i",
+        "when": "editorLangId == shellscript"
+      }
+    ],
+    "configuration": {
+      "title": "Bashle",
+      "properties": {
+        "bashle.bashPath": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Path to a bash >= 4.1. Leave empty to auto-discover (Homebrew, then PATH). macOS `/bin/bash` is 3.2 and is **not** supported."
+        },
+        "bashle.runOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run probes automatically when a shell script is saved."
+        },
+        "bashle.timeoutMs": {
+          "type": "number",
+          "default": 5000,
+          "description": "Kill a probe run after this many milliseconds."
+        },
+        "bashle.enforceSandbox": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enforce containment with sandbox-exec. When false, runs are contained by scratch clone + env only."
+        },
+        "bashle.maxRecords": {
+          "type": "number",
+          "default": 50000,
+          "description": "Stop tracing after this many events; the trace is marked truncated."
+        },
+        "bashle.maxCloneBytes": {
+          "type": "number",
+          "default": 536870912,
+          "description": "Refuse to clone a workspace larger than this (bytes)."
+        },
+        "bashle.watchAllVariables": {
+          "type": "boolean",
+          "default": false,
+          "description": "Snapshot every variable rather than only those named in the script. Slower."
+        }
+      }
+    },
+    "menus": {
+      "editor/title": [
+        {
+          "command": "bashle.run",
+          "when": "editorLangId == shellscript",
+          "group": "navigation"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "build": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node",
+    "watch": "npm run build -- --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "build:cli": "esbuild src/cli.ts --bundle --outfile=dist/cli.js --format=cjs --platform=node",
+    "probe": "npm run build:cli --silent && node dist/cli.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  }
+}

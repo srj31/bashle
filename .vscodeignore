@@ -1,0 +1,9 @@
+.vscode/**
+node_modules/**
+src/**
+test/**
+media/*.svg
+media/logo-full.png
+tsconfig.json
+vitest.config.ts
+.gitignore
