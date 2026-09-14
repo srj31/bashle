@@ -38,6 +38,19 @@ done
 | **macOS** | Containment uses `sandbox-exec` and APFS clones. Linux support is not built yet. |
 | **VS Code ≥ 1.85** | |
 
+## Install
+
+Not on the Marketplace yet, so build the `.vsix` and install it:
+
+```bash
+git clone https://github.com/srj31/bashle && cd bashle
+npm install
+npm run package
+code --install-extension bashle-0.1.0.vsix     # or: cursor --install-extension ...
+```
+
+Reload the window. Bashle activates on any file VS Code recognises as `shellscript`.
+
 ## Quick start
 
 1. Open a `.sh` file.
@@ -128,6 +141,45 @@ scripts like those with the same care you'd treat running them.
 
 The status bar shows `⛨` when kernel enforcement is on and `⚠` when only layers 1–2 are, so you are
 never guessing about which you have.
+
+## Using it in a real repository
+
+**Probes live in your scripts.** They're comments, so they commit with the code and travel with the
+repo. A teammate without bashle installed just sees a comment saying how the script is meant to be run
+— which is documentation you probably wanted anyway.
+
+**The working directory is the workspace root**, not the script's directory. A script at
+`scripts/build.sh` that reads `data.txt` gets the `data.txt` at your repo root. If your script expects
+to run from its own directory, anchor it the usual way:
+
+```bash
+cd "$(dirname "$0")"
+```
+
+Paths in the **Files** tab are relative to the workspace root too, so they read the same as `git status`.
+
+**Per-repo settings** go in `.vscode/settings.json` and commit with the repo:
+
+```json
+{
+  "bashle.runOnSave": false,
+  "bashle.timeoutMs": 15000,
+  "bashle.maxCloneBytes": 2147483648
+}
+```
+
+`runOnSave: false` is worth considering for a repo whose scripts are slow or heavy — you then drive it
+with `⌘⌥R` when you actually want a run.
+
+**On a large repo**, the clone itself is instant (APFS clonefile, no disk used until something writes),
+but bashle measures the workspace first and refuses above `maxCloneBytes` (512 MB by default). `.git`,
+`node_modules` and `.bashle` are cloned but excluded from the diff, so they never show up as changes.
+
+**Before you probe a script with real side effects**, know exactly what the sandbox covers. Writes
+outside the clone, network access and `sudo` are blocked by the kernel. Commands that do their work in
+*another* process — `docker`, `launchctl`, anything driving a system daemon — are not, because the file
+sandbox only constrains the process it wrapped. For scripts like those, keep `runOnSave` off and read
+the trace before you trust it.
 
 ## Supported today
 
@@ -225,7 +277,7 @@ reload the second window with **⌘R** after changing extension code.
 ### Tests
 
 ```bash
-npm test          # 128 tests, including end-to-end runs against real bash and a real sandbox
+npm test          # 131 tests, including end-to-end runs against real bash and a real sandbox
 npm run build     # bundle to dist/extension.js
 npm run typecheck
 ```

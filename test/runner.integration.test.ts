@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, beforeEach, afterEach } from 'vitest';
-import { mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { runProbe } from '../src/runner';
@@ -235,5 +235,82 @@ describe('supported bash constructs', () => {
     const pipelineExecutions = executionsOnLine(result, 2);
     expect(pipelineExecutions.length).toBeGreaterThanOrEqual(1);
     expect(pipelineExecutions.every((e) => e.subshellLevel === 0)).toBe(true);
+  });
+});
+
+describe('probes in a repository subdirectory', () => {
+  it('runs with the workspace root as cwd, not the script directory', async () => {
+    mkdirSync(join(workspace, 'scripts'));
+    writeFileSync(join(workspace, 'data.txt'), 'at repo root\n');
+    const scriptPath = join(workspace, 'scripts', 'build.sh');
+    const source = ['# @probe', 'cat data.txt'].join('\n');
+    writeFileSync(scriptPath, source);
+    const parsed = parseProbes(source);
+
+    const result = await runProbe({
+      bashPath,
+      preludePath: PRELUDE,
+      scriptPath,
+      workspaceRoot: workspace,
+      probe: parsed.probes[0]!,
+      hasSourceGuard: parsed.hasSourceGuard,
+      watchVariables: parsed.watchableVariableNames,
+      timeoutMs: 10_000,
+      maxRecords: 50_000,
+      maxCloneBytes: 2e9,
+      enforceSandbox: true,
+    });
+
+    expect(result.stdout.trim()).toBe('at repo root');
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('lets a script anchor itself to its own directory the usual way', async () => {
+    mkdirSync(join(workspace, 'scripts'));
+    writeFileSync(join(workspace, 'scripts', 'data.txt'), 'beside the script\n');
+    const scriptPath = join(workspace, 'scripts', 'build.sh');
+    const source = ['# @probe', 'cd "$(dirname "$0")"', 'cat data.txt'].join('\n');
+    writeFileSync(scriptPath, source);
+    const parsed = parseProbes(source);
+
+    const result = await runProbe({
+      bashPath,
+      preludePath: PRELUDE,
+      scriptPath,
+      workspaceRoot: workspace,
+      probe: parsed.probes[0]!,
+      hasSourceGuard: parsed.hasSourceGuard,
+      watchVariables: parsed.watchableVariableNames,
+      timeoutMs: 10_000,
+      maxRecords: 50_000,
+      maxCloneBytes: 2e9,
+      enforceSandbox: true,
+    });
+
+    expect(result.stdout.trim()).toBe('beside the script');
+  });
+
+  it('reports created files relative to the workspace root', async () => {
+    mkdirSync(join(workspace, 'scripts'));
+    const scriptPath = join(workspace, 'scripts', 'build.sh');
+    const source = ['# @probe', 'mkdir -p build', 'echo x > build/out.txt'].join('\n');
+    writeFileSync(scriptPath, source);
+    const parsed = parseProbes(source);
+
+    const result = await runProbe({
+      bashPath,
+      preludePath: PRELUDE,
+      scriptPath,
+      workspaceRoot: workspace,
+      probe: parsed.probes[0]!,
+      hasSourceGuard: parsed.hasSourceGuard,
+      watchVariables: parsed.watchableVariableNames,
+      timeoutMs: 10_000,
+      maxRecords: 50_000,
+      maxCloneBytes: 2e9,
+      enforceSandbox: true,
+    });
+
+    expect(result.changes.map((c) => c.path)).toContain('build/out.txt');
   });
 });

@@ -7,3 +7,4 @@ media/logo-full.png
 tsconfig.json
 vitest.config.ts
 .gitignore
+examples/**
