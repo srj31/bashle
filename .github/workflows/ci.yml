@@ -1,0 +1,150 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A second push to the same branch makes the first run's answer irrelevant.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Unlike a release, CI is worth finishing: knowing a failure is on one
+      # platform or both is most of the diagnosis.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    # Lifted to the job so the badge step can test them in its `if`: the
+    # `secrets` context is not available in a step-level conditional.
+    env:
+      COVERAGE_GIST_ID: ${{ vars.COVERAGE_GIST_ID }}
+      GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install bubblewrap
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap
+          # Ubuntu 24.04 restricts unprivileged user namespaces through AppArmor,
+          # which is exactly what bubblewrap needs.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+
+      - name: Install bash 5
+        if: runner.os == 'macOS'
+        run: brew list bash >/dev/null 2>&1 || brew install bash
+
+      # Without this the containment tests skip instead of failing, and CI would
+      # go green with the escape tests never having run.
+      - name: Confirm the sandbox works on this runner
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            bwrap --ro-bind / / --dev /dev --proc /proc --unshare-net --unshare-pid \
+              -- /bin/sh -c 'exit 0'
+            echo "bubblewrap can build a sandbox"
+          else
+            test -x /usr/bin/sandbox-exec
+            echo "sandbox-exec is present"
+          fi
+
+      - run: npm ci
+      - run: npm run typecheck
+
+      # Coverage instrumentation is measured once, on Linux. The macOS leg runs
+      # the same tests uninstrumented so a platform failure is never masked by a
+      # coverage-tooling failure.
+      - name: Test
+        if: runner.os != 'Linux'
+        run: npm test
+
+      - name: Test with coverage
+        if: runner.os == 'Linux'
+        run: npm run test:coverage
+
+      - name: Read the line coverage
+        id: coverage
+        if: runner.os == 'Linux'
+        run: |
+          pct=$(node -p "require('./coverage/coverage-summary.json').total.lines.pct")
+          echo "pct=$pct" >> "$GITHUB_OUTPUT"
+          echo "::notice::Line coverage is ${pct}%"
+
+      - uses: actions/upload-artifact@v7
+        if: runner.os == 'Linux'
+        with:
+          name: coverage
+          path: coverage/
+          retention-days: 14
+
+      # The badge tracks main. Pull requests only report the number in the log
+      # above: a fork's run cannot read secrets, and a PR must not be able to
+      # move the badge before it merges.
+      #
+      # Setup, once:
+      #   1. Create a public gist containing a file named bashle-coverage.json
+      #      (any content; this step overwrites it).
+      #   2. Set the gist id as the COVERAGE_GIST_ID repository variable.
+      #   3. Add a PAT with only the `gist` scope as the GIST_TOKEN secret.
+      #   4. Put the same gist id in place of COVERAGE_GIST_ID in the coverage
+      #      badge URL at the top of README.md.
+      # Until both the variable and the secret exist this step skips rather than
+      # failing, the same way publishing to the VS Code Marketplace is optional
+      # in the release workflow.
+      - name: Update the coverage badge
+        if: >-
+          runner.os == 'Linux'
+          && github.event_name == 'push'
+          && env.COVERAGE_GIST_ID != ''
+          && env.GIST_TOKEN != ''
+        # v1.9.0 is the first release on the node24 action runtime; v1.7.0 and
+        # earlier still run on the deprecated node20.
+        uses: schneegans/dynamic-badges-action@v1.9.0
+        with:
+          auth: ${{ secrets.GIST_TOKEN }}
+          gistID: ${{ vars.COVERAGE_GIST_ID }}
+          filename: bashle-coverage.json
+          label: coverage
+          message: ${{ steps.coverage.outputs.pct }}%
+          valColorRange: ${{ steps.coverage.outputs.pct }}
+          minColorRange: 50
+          maxColorRange: 90
+
+  build:
+    name: Build and package
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build
+
+      # The release packages the same way. Packaging here means a broken
+      # .vscodeignore or a missing bundled file fails a pull request instead of
+      # a publish, and the artifact can be installed to smoke-test the branch.
+      - name: Package
+        run: npx vsce package --no-dependencies --out bashle.vsix
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: bashle-vsix-${{ github.sha }}
+          path: bashle.vsix
+          retention-days: 14

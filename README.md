@@ -7,6 +7,12 @@
   Watch it run, line by line, expansion by expansion — without letting it touch your machine.</em>
 </p>
 
+<p align="center">
+  <a href="https://github.com/srj31/bashle/actions/workflows/ci.yml"><img src="https://github.com/srj31/bashle/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+  <a href="https://github.com/srj31/bashle/actions/workflows/ci.yml"><img src="https://img.shields.io/endpoint?url=https%3A%2F%2Fgist.githubusercontent.com%2Fsrj31%2F5d384b7a71e1d079d23a2cf984cd2def%2Fraw%2Fbashle-coverage.json" alt="coverage"></a>
+  <a href="https://open-vsx.org/extension/srj31/bashle"><img src="https://img.shields.io/open-vsx/v/srj31/bashle?label=Open%20VSX" alt="Open VSX"></a>
+</p>
+
 ---
 
 ## The problem
@@ -289,8 +295,9 @@ the first window; reload the second window after changing extension code.
 ### Tests
 
 ```bash
-npm test          # 156 tests, including end-to-end runs against real bash and a real sandbox
-npm run build     # bundle to dist/extension.js
+npm test              # 156 tests, including end-to-end runs against real bash and a real sandbox
+npm run test:coverage # the same run, plus coverage/ (open coverage/lcov-report/index.html)
+npm run build         # bundle to dist/extension.js
 npm run typecheck
 ```
 
