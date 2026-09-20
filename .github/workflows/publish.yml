@@ -1,0 +1,129 @@
+name: Publish
+
+# Publishing is deliberate: it only ever runs when someone asks for it, and only
+# from main, because it pushes the version commit and tag back there.
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: Which part of the version to bump
+        type: choice
+        required: true
+        default: minor
+        options: [major, minor, patch]
+      dry_run:
+        description: Build and test, but publish nothing
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install bubblewrap
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bubblewrap
+          # Ubuntu 24.04 restricts unprivileged user namespaces through AppArmor,
+          # which is exactly what bubblewrap needs.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+
+      - name: Install bash 5
+        if: runner.os == 'macOS'
+        run: brew list bash >/dev/null 2>&1 || brew install bash
+
+      # Without this the containment tests skip instead of failing, and a release
+      # could ship with the escape tests never having run.
+      - name: Confirm the sandbox works on this runner
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            bwrap --ro-bind / / --dev /dev --proc /proc --unshare-net --unshare-pid \
+              -- /bin/sh -c 'exit 0'
+            echo "bubblewrap can build a sandbox"
+          else
+            test -x /usr/bin/sandbox-exec
+            echo "sandbox-exec is present"
+          fi
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+  publish:
+    name: Publish ${{ inputs.release_type }}
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build
+
+      - name: Bump the version
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          npm version ${{ inputs.release_type }} -m "Release v%s"
+          echo "VERSION=$(node -p "require('./package.json').version")" >> "$GITHUB_ENV"
+
+      # One artifact goes to both registries, so they cannot drift.
+      - name: Package
+        run: npx vsce package --no-dependencies --out bashle.vsix
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bashle-${{ env.VERSION }}
+          path: bashle.vsix
+
+      - name: Publish to the VS Code Marketplace
+        if: ${{ !inputs.dry_run }}
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: npx vsce publish --no-dependencies --packagePath bashle.vsix
+
+      - name: Publish to Open VSX
+        if: ${{ !inputs.dry_run }}
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: |
+          if [ -z "$OVSX_PAT" ]; then
+            echo "::notice::OVSX_PAT is not set, skipping Open VSX"
+            exit 0
+          fi
+          npx ovsx publish bashle.vsix -p "$OVSX_PAT"
+
+      # Pushed last: a failed push is re-runnable, a published version is not.
+      - name: Push the version commit and tag
+        if: ${{ !inputs.dry_run }}
+        run: git push --follow-tags origin main
+
+      - name: Create the GitHub release
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v$VERSION" bashle.vsix \
+            --title "v$VERSION" \
+            --notes "Published to the VS Code Marketplace. See CHANGELOG.md for what changed."
