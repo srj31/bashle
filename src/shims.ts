@@ -10,8 +10,17 @@ import type { Fill, HoleKind } from './types';
  */
 export const HOLE_SENTINEL_PATTERN = /\x01h([0-9.]+)\x01/;
 
-/** A fresh global matcher; the pattern is stateful when reused, so callers get their own. */
-export const holeSentinelMatcher = (): RegExp => /\x01h([0-9.]+)\x01/g;
+/**
+ * A fresh global matcher; the pattern is stateful when reused, so callers get
+ * their own.
+ *
+ * Matches two spellings. Raw bytes are what the shim writes and what ends up in
+ * filenames on disk. But bash renders a control character with ANSI-C quoting,
+ * so `declare -p` and xtrace both report the value as the *text* $'\001h1.2\001'
+ * — which means the raw bytes never appear in the trace at all.
+ */
+export const holeSentinelMatcher = (): RegExp =>
+  /\x01h([0-9.]+)\x01|\\001h([0-9.]+)\\001/g;
 
 /** Commands whose argv carries a URL, so the request is `<METHOD> <url>`. */
 export const NETWORK_COMMANDS = ['curl', 'wget'] as const;

@@ -7,6 +7,7 @@ import { detectChanges, snapshotDirectory } from './fsDiffer';
 import { createScratchClone, type ScratchWorkspace } from './scratch';
 import { materializeFileFills } from './fills';
 import { generateShims } from './shims';
+import { assembleHoles } from './holes';
 import { planContainment } from './containment';
 import { quoteShellWord, splitShellWords } from './shellWords';
 import { evaluateVerdict } from './verdict';
@@ -224,6 +225,8 @@ export async function runProbe(options: RunProbeOptions): Promise<RunResult> {
       before,
     });
 
+    const { holes, diagnostics } = assembleHoles({ trace, changes });
+
     return {
       probe: options.probe,
       trace: retargetTraceToWorkspace(trace, options.scriptPath),
@@ -232,6 +235,8 @@ export async function runProbe(options: RunProbeOptions): Promise<RunResult> {
       exitCode: outcome.exitCode,
       timedOut: outcome.timedOut,
       changes,
+      holes,
+      holeDiagnostics: diagnostics,
       verdict: evaluateVerdict(options.probe.expectation, outcome.stdout, outcome.exitCode),
       sandboxEnforced: containment.kind !== 'none',
       durationMs: Date.now() - startedAt,

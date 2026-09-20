@@ -460,3 +460,50 @@ describe('command holes', () => {
     expect(result.stdout.trim()).toBe('nothing running');
   });
 });
+
+describe('an unfilled hole propagates', () => {
+  it('carries the unknown through variables, commands and the files it creates', async () => {
+    const result = await runScript(
+      [
+        '# @probe',
+        'set -euo pipefail',
+        'version=$(curl -s https://api.example.com/v1/latest)',
+        'dest="releases/$version"',
+        'mkdir -p "$dest"',
+        'echo ok > "$dest/log"',
+      ].join('\n'),
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.holes).toHaveLength(1);
+
+    const hole = result.holes[0]!;
+    expect(hole.request).toBe('GET https://api.example.com/v1/latest');
+    expect(hole.state).toBe('open');
+    expect(hole.goal).toBe('stdout');
+    expect(hole.reaches.variables).toContain('version');
+    expect(hole.reaches.variables).toContain('dest');
+    expect(hole.reaches.createdPaths.length).toBeGreaterThan(0);
+  });
+
+  it('explains a hole used as a number rather than leaving a bare arithmetic error', async () => {
+    const result = await runScript(
+      [
+        '# @probe',
+        'count=$(curl -s https://api.example.com/v1/count)',
+        'if (( count > 3 )); then echo many; fi',
+      ].join('\n'),
+    );
+
+    expect(result.holeDiagnostics.map((d) => d.kind)).toContain('numeric-context');
+  });
+
+  it('marks a file hole suspect when the path came from an empty variable', async () => {
+    const result = await runScript(
+      ['# @probe', 'dest=', 'cat "$dest/deploy.conf" || true'].join('\n'),
+    );
+
+    expect(result.holes).toHaveLength(1);
+    expect(result.holes[0]!.suspect).toEqual({ emptyVariable: 'dest' });
+  });
+});

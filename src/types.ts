@@ -69,6 +69,34 @@ export interface Trace {
   finalExit?: number;
 }
 
+export interface HoleReach {
+  variables: string[];
+  lineNumbers: number[];
+  createdPaths: string[];
+}
+
+export interface Hole {
+  id: number;
+  kind: HoleKind;
+  request: string;
+  state: 'open' | 'filled' | 'prefilled';
+  goal: 'stdout' | 'status' | 'contents';
+  lineNumber?: number;
+  occurrenceIndex?: number;
+  /** Variables live at the hole, from the DEBUG snapshot of the owning command. */
+  context?: Record<string, string>;
+  reaches: HoleReach;
+  /** Set when the line reached an empty variable; survives the hole being filled. */
+  suspect?: { emptyVariable: string };
+  suggestedFill: string;
+}
+
+export interface HoleDiagnostic {
+  holeId: number;
+  lineNumber: number;
+  kind: 'numeric-context';
+}
+
 export interface FileChange {
   kind: 'created' | 'modified' | 'deleted';
   path: string;
@@ -92,6 +120,8 @@ export interface RunResult {
   timedOut: boolean;
   changes: FileChange[];
   verdict: Verdict;
+  holes: Hole[];
+  holeDiagnostics: HoleDiagnostic[];
   sandboxEnforced: boolean;
   durationMs: number;
   warnings: string[];

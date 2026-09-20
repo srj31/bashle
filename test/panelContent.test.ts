@@ -11,6 +11,8 @@ const result = (over: Partial<RunResult> = {}): RunResult => ({
   timedOut: false,
   changes: [],
   verdict: { kind: 'none' },
+  holes: [],
+  holeDiagnostics: [],
   sandboxEnforced: true,
   durationMs: 12,
   warnings: [],
