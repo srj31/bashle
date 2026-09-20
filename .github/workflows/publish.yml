@@ -1,7 +1,8 @@
 name: Publish
 
 # Publishing is deliberate: it only ever runs when someone asks for it, and only
-# from main, because it pushes the version commit and tag back there.
+# from a protected branch, because it bumps the version and pushes the commit
+# and tag back to whatever branch it was dispatched from.
 on:
   workflow_dispatch:
     inputs:
@@ -67,9 +68,20 @@ jobs:
   publish:
     name: Publish ${{ inputs.release_type }}
     needs: test
-    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
+      # Checked before any work, and as a failure rather than a skipped job: a
+      # release that quietly did nothing is worse than one that stops loudly.
+      - name: Require a protected branch
+        env:
+          REF_PROTECTED: ${{ github.ref_protected }}
+        run: |
+          if [ "$REF_PROTECTED" != "true" ]; then
+            echo "::error::Refusing to publish from '$GITHUB_REF_NAME': it is not a protected branch."
+            exit 1
+          fi
+          echo "$GITHUB_REF_NAME is protected"
+
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
@@ -118,7 +130,7 @@ jobs:
       # Pushed last: a failed push is re-runnable, a published version is not.
       - name: Push the version commit and tag
         if: ${{ !inputs.dry_run }}
-        run: git push --follow-tags origin main
+        run: git push --follow-tags origin "HEAD:$GITHUB_REF_NAME"
 
       - name: Create the GitHub release
         if: ${{ !inputs.dry_run }}
