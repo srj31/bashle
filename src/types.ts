@@ -2,12 +2,26 @@ export type Expectation =
   | { kind: 'exit'; code: number }
   | { kind: 'stdout'; text: string };
 
+export type HoleKind = 'net' | 'cmd' | 'file' | 'clock';
+
+export interface Fill {
+  kind: HoleKind;
+  request: string;
+  body: string;
+  /** Set when the value was `=> @path`; the runner reads it and fills in `body`. */
+  fixture?: string;
+  exitCode: number;
+  outputPath?: string;
+  lineIndex: number;
+}
+
 export interface Probe {
   kind: 'script' | 'function';
   target?: string;
   argsRaw: string;
   expectation?: Expectation;
   env: Record<string, string>;
+  fills: Fill[];
   stdin?: string;
   commentLineIndex: number;
   targetLineIndex: number;

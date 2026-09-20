@@ -1,8 +1,24 @@
-import type { Expectation, ParsedFile, Probe, ProbeParseError } from './types';
+import type { Expectation, Fill, HoleKind, ParsedFile, Probe, ProbeParseError } from './types';
 
 const PROBE_DIRECTIVE = /^\s*#\s*@probe\b[ \t]?(.*)$/;
 const ENV_DIRECTIVE = /^\s*#\s*@env\b[ \t]*(.*)$/;
 const STDIN_DIRECTIVE = /^\s*#\s*@stdin\b[ \t]*(.*)$/;
+const CLOCK_DIRECTIVE = /^\s*#\s*@clock\b[ \t]*(.*)$/;
+
+/** Fills keyed on a request, all sharing the `<request> => <value>` shape. */
+const REQUEST_FILL_DIRECTIVES: { kind: HoleKind; pattern: RegExp }[] = [
+  { kind: 'net', pattern: /^\s*#\s*@net\b[ \t]*(.*)$/ },
+  { kind: 'cmd', pattern: /^\s*#\s*@cmd\b[ \t]*(.*)$/ },
+  { kind: 'file', pattern: /^\s*#\s*@file\b[ \t]*(.*)$/ },
+];
+
+function matchRequestFill(text: string): { kind: HoleKind; rest: string } | null {
+  for (const { kind, pattern } of REQUEST_FILL_DIRECTIVES) {
+    const matched = pattern.exec(text);
+    if (matched) return { kind, rest: matched[1] ?? '' };
+  }
+  return null;
+}
 const COMMENT_LINE = /^\s*#/;
 const BLANK_LINE = /^\s*$/;
 
@@ -51,6 +67,24 @@ function splitAtLastUnquotedArrow(text: string): { args: string; expectation: st
     args: text.slice(0, arrowIndex).trim(),
     expectation: text.slice(arrowIndex + 2).trim(),
   };
+}
+
+/**
+ * A fill value is a body, a status, or both. The trailing `exit N` is only
+ * recognised at the very end, so a quoted body may contain the word freely.
+ */
+function parseFillValue(raw: string): { body: string; exitCode: number; fixture?: string } {
+  const trimmed = raw.trim();
+  const statusOnly = /^exit\s+(-?\d+)$/.exec(trimmed);
+  if (statusOnly) return { body: '', exitCode: Number(statusOnly[1]) };
+
+  const bodyThenStatus = /^([\s\S]*?)\s+exit\s+(-?\d+)$/.exec(trimmed);
+  const valueText = bodyThenStatus ? bodyThenStatus[1]!.trim() : trimmed;
+  const exitCode = bodyThenStatus ? Number(bodyThenStatus[2]) : 0;
+
+  // A bare leading @ names a fixture; quoting it makes it an ordinary body.
+  if (valueText.startsWith('@')) return { body: '', exitCode, fixture: valueText.slice(1) };
+  return { body: unquoteScalar(valueText), exitCode };
 }
 
 function parseExpectation(
@@ -105,7 +139,20 @@ function readCommentBlockAt(lines: string[], start: number): { block: string[]; 
 interface CommentBlockDirectives {
   probeLines: { lineIndex: number; text: string }[];
   env: Record<string, string>;
+  fills: Fill[];
   stdin?: string;
+}
+
+const HEREDOC_OPENER = /^<<\s*'?([A-Za-z_][A-Za-z0-9_]*)'?$/;
+
+/** Strips one leading `#` from each line, then the indent they share. */
+function dedentHeredoc(lines: string[]): string {
+  if (lines.length === 0) return '';
+  const indents = lines
+    .filter((line) => line.trim() !== '')
+    .map((line) => /^[ \t]*/.exec(line)![0].length);
+  const common = indents.length > 0 ? Math.min(...indents) : 0;
+  return `${lines.map((line) => line.slice(common)).join('\n')}\n`;
 }
 
 function readDirectives(
@@ -115,15 +162,33 @@ function readDirectives(
 ): CommentBlockDirectives {
   const probeLines: { lineIndex: number; text: string }[] = [];
   const env: Record<string, string> = {};
+  const fills: Fill[] = [];
+  const seenRequests = new Set<string>();
   let stdin: string | undefined;
 
-  block.forEach((text, offset) => {
+  // A fill is only useful if it is the single answer to its request, so a
+  // repeat is reported rather than silently shadowing the earlier one.
+  const addFill = (fill: Fill): void => {
+    const identity = `${fill.kind}\u0000${fill.request}`;
+    if (seenRequests.has(identity)) {
+      errors.push({
+        lineIndex: fill.lineIndex,
+        message: `\`${fill.request || fill.kind}\` already has a fill in this comment block.`,
+      });
+      return;
+    }
+    seenRequests.add(identity);
+    fills.push(fill);
+  };
+
+  for (let offset = 0; offset < block.length; offset++) {
+    const text = block[offset]!;
     const lineIndex = blockStart + offset;
 
     const probe = PROBE_DIRECTIVE.exec(text);
     if (probe) {
       probeLines.push({ lineIndex, text: probe[1] ?? '' });
-      return;
+      continue;
     }
 
     const envDirective = ENV_DIRECTIVE.exec(text);
@@ -131,17 +196,79 @@ function readDirectives(
       const assignment = /^([A-Za-z_][A-Za-z0-9_]*)=([\s\S]*)$/.exec((envDirective[1] ?? '').trim());
       if (!assignment) {
         errors.push({ lineIndex, message: '`@env` needs a KEY=value assignment.' });
-        return;
+        continue;
       }
       env[assignment[1]!] = unquoteScalar(assignment[2]!.trim());
-      return;
+      continue;
+    }
+
+    const requestFill = matchRequestFill(text);
+    if (requestFill) {
+      const { args, expectation } = splitAtLastUnquotedArrow(requestFill.rest);
+      const heredoc = HEREDOC_OPENER.exec((expectation ?? '').trim());
+
+      if (!heredoc) {
+        addFill({
+          kind: requestFill.kind,
+          request: args,
+          ...parseFillValue(expectation ?? ''),
+          lineIndex,
+        });
+        continue;
+      }
+
+      // A heredoc body runs on into the comment lines below, so this directive
+      // consumes them rather than leaving them to be read as directives.
+      const terminator = heredoc[1]!;
+      const bodyLines: string[] = [];
+      let cursor = offset + 1;
+      let terminated = false;
+      while (cursor < block.length) {
+        const line = block[cursor]!.replace(/^[ \t]*#/, '');
+        cursor++;
+        if (line.trim() === terminator) {
+          terminated = true;
+          break;
+        }
+        bodyLines.push(line);
+      }
+      offset = cursor - 1;
+
+      if (!terminated) {
+        errors.push({
+          lineIndex,
+          message: `Unterminated heredoc: no closing \`${terminator}\` in this comment block.`,
+        });
+        continue;
+      }
+
+      addFill({
+        kind: requestFill.kind,
+        request: args,
+        body: dedentHeredoc(bodyLines),
+        exitCode: 0,
+        lineIndex,
+      });
+      continue;
+    }
+
+    const clockDirective = CLOCK_DIRECTIVE.exec(text);
+    if (clockDirective) {
+      addFill({
+        kind: 'clock',
+        request: '',
+        body: (clockDirective[1] ?? '').trim(),
+        exitCode: 0,
+        lineIndex,
+      });
+      continue;
     }
 
     const stdinDirective = STDIN_DIRECTIVE.exec(text);
     if (stdinDirective) stdin = unquoteScalar((stdinDirective[1] ?? '').trim());
-  });
+  }
 
-  return { probeLines, env, ...(stdin !== undefined ? { stdin } : {}) };
+  return { probeLines, env, fills, ...(stdin !== undefined ? { stdin } : {}) };
 }
 
 export function parseProbes(source: string): ParsedFile {
@@ -160,7 +287,7 @@ export function parseProbes(source: string): ParsedFile {
     const { block, end } = readCommentBlockAt(lines, blockStart);
     cursor = end;
 
-    const { probeLines, env, stdin } = readDirectives(block, blockStart, errors);
+    const { probeLines, env, fills, stdin } = readDirectives(block, blockStart, errors);
     if (probeLines.length === 0) continue;
 
     const targetLineIndex = findNextCodeLineIndex(lines, cursor);
@@ -185,6 +312,7 @@ export function parseProbes(source: string): ParsedFile {
           ? { expectation: parseExpectation(expectation, lineIndex, errors) }
           : {}),
         env: { ...env },
+        fills: fills.map((fill) => ({ ...fill })),
         ...(stdin !== undefined ? { stdin } : {}),
         commentLineIndex: lineIndex,
         targetLineIndex,

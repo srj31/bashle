@@ -3,7 +3,7 @@ import { renderPanelHtml, escapeHtml } from '../src/panelContent';
 import type { RunResult } from '../src/types';
 
 const result = (over: Partial<RunResult> = {}): RunResult => ({
-  probe: { kind: 'script', argsRaw: '', env: {}, commentLineIndex: 0, targetLineIndex: 1 },
+  probe: { kind: 'script', argsRaw: '', env: {}, fills: [], commentLineIndex: 0, targetLineIndex: 1 },
   trace: { executions: [], truncated: false },
   stdout: '',
   stderr: '',
