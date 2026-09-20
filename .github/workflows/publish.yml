@@ -1,8 +1,8 @@
 name: Publish
 
 # Publishing is deliberate: it only ever runs when someone asks for it, and only
-# from a protected branch, because it bumps the version and pushes the commit
-# and tag back to whatever branch it was dispatched from.
+# from main, because it bumps the version and pushes the commit and tag back to
+# whatever branch it was dispatched from.
 on:
   workflow_dispatch:
     inputs:
@@ -72,15 +72,13 @@ jobs:
     steps:
       # Checked before any work, and as a failure rather than a skipped job: a
       # release that quietly did nothing is worse than one that stops loudly.
-      - name: Require a protected branch
-        env:
-          REF_PROTECTED: ${{ github.ref_protected }}
+      - name: Require the main branch
         run: |
-          if [ "$REF_PROTECTED" != "true" ]; then
-            echo "::error::Refusing to publish from '$GITHUB_REF_NAME': it is not a protected branch."
+          if [ "$GITHUB_REF_NAME" != "main" ]; then
+            echo "::error::Refusing to publish from '$GITHUB_REF_NAME': releases are cut from main."
             exit 1
           fi
-          echo "$GITHUB_REF_NAME is protected"
+          echo "Publishing from $GITHUB_REF_NAME"
 
       - uses: actions/checkout@v7
         with:
