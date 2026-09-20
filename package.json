@@ -2,7 +2,7 @@
   "name": "bashle",
   "displayName": "Bashle — Live Bash",
   "description": "A live programming environment for bash scripts: see expansions, exit codes and filesystem effects inline, sandboxed.",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "publisher": "srj31",
   "license": "MIT",
   "engines": {
