@@ -5,6 +5,7 @@ import type { Probe, RunResult, Trace } from './types';
 import { applyProcessExitCode, parseTrace } from './traceParser';
 import { detectChanges, snapshotDirectory } from './fsDiffer';
 import { createScratchClone, type ScratchWorkspace } from './scratch';
+import { materializeFileFills } from './fills';
 import { planContainment } from './containment';
 import { quoteShellWord, splitShellWords } from './shellWords';
 import { evaluateVerdict } from './verdict';
@@ -143,6 +144,15 @@ export async function runProbe(options: RunProbeOptions): Promise<RunResult> {
   });
 
   try {
+    // A fill is an input, not a result, so it lands before the baseline
+    // snapshot and never shows up in the Files tab as something the run made.
+    const materialized = await materializeFileFills({
+      fills: options.probe.fills,
+      workspaceRoot: options.workspaceRoot,
+      scratchRoot: scratch.root,
+    });
+    warnings.push(...materialized.warnings);
+
     const before = await snapshotDirectory(scratch.root);
     const scriptInScratch = scratchPathFor(scratch, options.workspaceRoot, options.scriptPath);
 
