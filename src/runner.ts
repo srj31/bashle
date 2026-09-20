@@ -6,6 +6,7 @@ import { applyProcessExitCode, parseTrace } from './traceParser';
 import { detectChanges, snapshotDirectory } from './fsDiffer';
 import { createScratchClone, type ScratchWorkspace } from './scratch';
 import { materializeFileFills } from './fills';
+import { generateShims } from './shims';
 import { planContainment } from './containment';
 import { quoteShellWord, splitShellWords } from './shellWords';
 import { evaluateVerdict } from './verdict';
@@ -153,6 +154,11 @@ export async function runProbe(options: RunProbeOptions): Promise<RunResult> {
     });
     warnings.push(...materialized.warnings);
 
+    // Shims are generated for every name on every run, filled or not, because
+    // discovery has to work before anyone has written a fill.
+    const shimDirectory = join(scratch.bookkeepingDirectory, 'bin');
+    await generateShims({ binDirectory: shimDirectory, fills: options.probe.fills });
+
     const before = await snapshotDirectory(scratch.root);
     const scriptInScratch = scratchPathFor(scratch, options.workspaceRoot, options.scriptPath);
 
@@ -196,6 +202,7 @@ export async function runProbe(options: RunProbeOptions): Promise<RunResult> {
         _BASHLE_FD: String(TRACE_FILE_DESCRIPTOR),
         _BASHLE_MAX_RECORDS: String(options.maxRecords),
         _BASHLE_WATCH: options.watchVariables.join(' '),
+        PATH: `${shimDirectory}:${process.env.PATH ?? ''}`,
       },
     });
 

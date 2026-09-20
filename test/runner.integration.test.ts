@@ -415,3 +415,48 @@ describe('the watch list must not change what the script does', () => {
     expect(result.exitCode).toBe(0);
   });
 });
+
+describe('command holes', () => {
+  it('fills a network request from a @net directive', async () => {
+    const result = await runScript(
+      [
+        '# @net GET https://api.example.com/v1/latest => "1.4.2"',
+        '# @probe',
+        'set -euo pipefail',
+        'version=$(curl -s https://api.example.com/v1/latest)',
+        'echo "version=$version"',
+      ].join('\n'),
+    );
+    expect(result.stdout.trim()).toBe('version=1.4.2');
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('carries an unfilled request past set -e instead of ending the run', async () => {
+    const result = await runScript(
+      [
+        '# @probe',
+        'set -euo pipefail',
+        'version=$(curl -s https://api.example.com/v1/latest)',
+        'echo "done"',
+      ].join('\n'),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('done');
+  });
+
+  it('records an unfilled request as an open hole', async () => {
+    const result = await runScript(
+      ['# @probe', 'curl -s https://api.example.com/v1/latest || true'].join('\n'),
+    );
+    expect(result.trace.holeRecords.map((r) => [r.kind, r.request, r.state])).toEqual([
+      ['net', 'GET https://api.example.com/v1/latest', 'open'],
+    ]);
+  });
+
+  it('does not let a sandbox-escaping command reach the real binary', async () => {
+    const result = await runScript(
+      ['# @cmd docker ps => "nothing running"', '# @probe', 'docker ps'].join('\n'),
+    );
+    expect(result.stdout.trim()).toBe('nothing running');
+  });
+});

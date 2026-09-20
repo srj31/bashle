@@ -1,4 +1,4 @@
-import type { LineExecution, Trace } from './types';
+import type { HoleKind, HoleRecord, LineExecution, Trace } from './types';
 
 export const RECORD_SEPARATOR = '\x1e';
 export const FIELD_SEPARATOR = '\x1f';
@@ -7,6 +7,7 @@ const DEBUG_RECORD = 'D';
 const XTRACE_RECORD = 'X';
 const EXIT_RECORD = 'E';
 const TRUNCATION_RECORD = 'T';
+const HOLE_RECORD = 'H';
 
 const TRACER_FUNCTION_NAME = '_bashle_debug';
 
@@ -85,6 +86,11 @@ class ExecutionLog {
     return this.executions[this.executions.length - 1];
   }
 
+  /** The execution a shim's hole record belongs to: the one that spawned it. */
+  current(): LineExecution | undefined {
+    return this.last;
+  }
+
   private lastMatching(source: string, lineNumber: number): LineExecution | undefined {
     const candidate = this.last;
     if (!candidate) return undefined;
@@ -157,6 +163,7 @@ class ExecutionLog {
 export function parseTrace(raw: string, options: ParseTraceOptions = {}): Trace {
   const includeSource = options.includeSource ?? (() => true);
   const log = new ExecutionLog();
+  const holeRecords: HoleRecord[] = [];
   let truncated = false;
   let finalExit: number | undefined;
 
@@ -165,6 +172,22 @@ export function parseTrace(raw: string, options: ParseTraceOptions = {}): Trace 
 
     if (kind === TRUNCATION_RECORD) {
       truncated = true;
+      continue;
+    }
+
+    // A shim runs in a child process with no BASH_SOURCE or LINENO of its own,
+    // so this is handled before the source filter below would discard it, and
+    // is attributed to the command the DEBUG trap announced just beforehand.
+    if (kind === HOLE_RECORD) {
+      const owner = log.current();
+      holeRecords.push({
+        kind: (fields[1] ?? 'cmd') as HoleKind,
+        request: fields[2] ?? '',
+        token: fields[3] ?? '',
+        exitCode: Number(fields[4] ?? 0),
+        state: (fields[5] ?? 'open') as HoleRecord['state'],
+        ...(owner ? { lineNumber: owner.lineNumber, occurrenceIndex: owner.occurrenceIndex } : {}),
+      });
       continue;
     }
 
@@ -205,6 +228,7 @@ export function parseTrace(raw: string, options: ParseTraceOptions = {}): Trace 
 
   return {
     executions: log.all(),
+    holeRecords,
     truncated,
     ...(finalExit !== undefined ? { finalExit } : {}),
   };

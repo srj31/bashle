@@ -157,3 +157,44 @@ describe('applyProcessExitCode', () => {
     expect(applyProcessExitCode(parseTrace(''), 0).executions).toEqual([]);
   });
 });
+
+describe('parseTrace hole records', () => {
+  const RS = '\x1e';
+  const FS = '\x1f';
+  const dbg = (line: number, prevExit: number, cmd: string, vars = '', sub = 0) =>
+    `${RS}D${FS}s.sh${FS}${line}${FS}${sub}${FS}${FS}${prevExit}${FS}${cmd}${FS}${vars}`;
+  const hole = (kind: string, request: string, token: string, status = 0, state = 'open') =>
+    `${RS}H${FS}${kind}${FS}${request}${FS}${token}${FS}${status}${FS}${state}${FS}`;
+
+  it('reads a hole record emitted by a shim', () => {
+    const t = parseTrace(hole('net', 'GET https://api/x', '123.4'));
+    expect(t.holeRecords).toEqual([
+      {
+        kind: 'net',
+        request: 'GET https://api/x',
+        token: '123.4',
+        exitCode: 0,
+        state: 'open',
+      },
+    ]);
+  });
+
+  it('attributes a hole to the command that was running when the shim fired', () => {
+    const raw =
+      dbg(3, 0, 'version=$(curl -s "$url")') + hole('net', 'GET https://api/x', '123.4');
+    const t = parseTrace(raw);
+    expect(t.holeRecords[0]).toMatchObject({ lineNumber: 3, occurrenceIndex: 0 });
+  });
+
+  it('keeps a hole record that carries no source, since a shim is a child process', () => {
+    const t = parseTrace(hole('cmd', 'docker ps', '9.9'), {
+      includeSource: (source) => source === 'only-this.sh',
+    });
+    expect(t.holeRecords).toHaveLength(1);
+  });
+
+  it('leaves hole records out of the executions list', () => {
+    const t = parseTrace(dbg(1, 0, 'echo') + hole('net', 'GET https://api/x', '1.1'));
+    expect(t.executions).toHaveLength(1);
+  });
+});

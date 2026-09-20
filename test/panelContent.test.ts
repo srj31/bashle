@@ -4,7 +4,7 @@ import type { RunResult } from '../src/types';
 
 const result = (over: Partial<RunResult> = {}): RunResult => ({
   probe: { kind: 'script', argsRaw: '', env: {}, fills: [], commentLineIndex: 0, targetLineIndex: 1 },
-  trace: { executions: [], truncated: false },
+  trace: { executions: [], holeRecords: [], truncated: false },
   stdout: '',
   stderr: '',
   exitCode: 0,
@@ -61,6 +61,7 @@ describe('renderPanelHtml', () => {
       [
         result({
           trace: {
+            holeRecords: [],
             executions: [
               {
                 lineNumber: 4,

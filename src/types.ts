@@ -51,8 +51,20 @@ export interface LineExecution {
   occurrenceIndex: number;
 }
 
+export interface HoleRecord {
+  kind: HoleKind;
+  request: string;
+  token: string;
+  exitCode: number;
+  state: 'open' | 'filled' | 'prefilled';
+  /** Attributed from the DEBUG record that preceded the shim. */
+  lineNumber?: number;
+  occurrenceIndex?: number;
+}
+
 export interface Trace {
   executions: LineExecution[];
+  holeRecords: HoleRecord[];
   truncated: boolean;
   finalExit?: number;
 }
