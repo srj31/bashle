@@ -21,7 +21,14 @@
     "sandbox"
   ],
   "icon": "media/logo.png",
+  "galleryBanner": {
+    "color": "#1e1e1e",
+    "theme": "dark"
+  },
   "main": "./dist/extension.js",
+  "extensionKind": [
+    "workspace"
+  ],
   "activationEvents": [
     "onLanguage:shellscript"
   ],
@@ -117,7 +124,8 @@
     "test:watch": "vitest",
     "build:cli": "esbuild src/cli.ts --bundle --outfile=dist/cli.js --format=cjs --platform=node",
     "probe": "npm run build:cli --silent && node dist/cli.js",
-    "package": "npm run build && vsce package --no-dependencies"
+    "package": "npm run build && vsce package --no-dependencies",
+    "release": "npm test && npm run build && vsce publish --no-dependencies"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
