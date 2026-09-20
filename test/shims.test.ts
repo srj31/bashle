@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, readFile, open } from 'node:fs/promises';
+import { mkdtemp, rm, readFile, writeFile, open } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -153,5 +153,97 @@ describe('generated shims', () => {
     const { stdout, code } = await invoke('docker', ['version']);
     expect(code).toBe(0);
     expect(stdout).toMatch(HOLE_SENTINEL_PATTERN);
+  });
+
+  describe('the file-reader tier', () => {
+    it('passes through to the real binary when every file argument exists', async () => {
+      await writeFile(join(root, 'present.txt'), 'real contents\n');
+      await generateShims({ binDirectory, fills: [] });
+
+      const { stdout, code, trace } = await invoke('cat', [join(root, 'present.txt')]);
+      expect(stdout).toBe('real contents\n');
+      expect(code).toBe(0);
+      expect(trace).toBe('');
+    });
+
+    it('passes through with several files, concatenating as the real binary does', async () => {
+      await writeFile(join(root, 'a.txt'), 'A\n');
+      await writeFile(join(root, 'b.txt'), 'B\n');
+      await generateShims({ binDirectory, fills: [] });
+
+      const { stdout } = await invoke('cat', [join(root, 'a.txt'), join(root, 'b.txt')]);
+      expect(stdout).toBe('A\nB\n');
+    });
+
+    it('holes on a missing file and lets the run continue', async () => {
+      await generateShims({ binDirectory, fills: [] });
+      const { stdout, code, trace } = await invoke('cat', [join(root, 'absent.txt')]);
+
+      expect(code).toBe(0);
+      expect(stdout).toMatch(HOLE_SENTINEL_PATTERN);
+      expect(trace).toContain('absent.txt');
+      expect(trace).toContain('open');
+    });
+
+    it('holes on only the missing file when one of two exists', async () => {
+      await writeFile(join(root, 'present.txt'), 'A\n');
+      await generateShims({ binDirectory, fills: [] });
+
+      const { trace } = await invoke('head', [
+        '-n', '2', join(root, 'present.txt'), join(root, 'gone.txt'),
+      ]);
+      expect(trace).toContain('gone.txt');
+      expect(trace).not.toContain('present.txt');
+    });
+
+    it('does not mistake a flag or a lone dash for a missing file', async () => {
+      await writeFile(join(root, 'present.txt'), 'A\n');
+      await generateShims({ binDirectory, fills: [] });
+
+      const { trace, stdout } = await invoke('head', ['-n', '1', join(root, 'present.txt')]);
+      expect(trace).toBe('');
+      expect(stdout).toBe('A\n');
+    });
+
+    it('passes a directory through so it fails the way the real binary would', async () => {
+      await generateShims({ binDirectory, fills: [] });
+      const { code, trace } = await invoke('cat', [root]);
+      expect(code).not.toBe(0);
+      expect(trace).toBe('');
+    });
+  });
+
+  describe('the pre-filled tier', () => {
+    it('pins the clock while still letting date format', async () => {
+      await generateShims({ binDirectory, fills: [] });
+      const { stdout } = await invoke('date', ['-u', '+%Y-%m-%d']);
+      expect(stdout.trim()).toBe('2026-01-01');
+    });
+
+    it('takes the pinned instant from @clock', async () => {
+      await generateShims({
+        binDirectory,
+        fills: [fill({ kind: 'clock', request: '', body: '2026-01-15T09:30:00Z' })],
+      });
+      const { stdout } = await invoke('date', ['-u', '+%Y-%m-%d']);
+      expect(stdout.trim()).toBe('2026-01-15');
+    });
+
+    it('answers hostname without counting as an unknown', async () => {
+      await generateShims({ binDirectory, fills: [] });
+      const { stdout, trace } = await invoke('hostname', []);
+      expect(stdout.trim()).toBe('bashle');
+      expect(trace).toContain('prefilled');
+      expect(trace).not.toContain('open');
+    });
+
+    it('lets a @cmd fill override a pre-filled default', async () => {
+      await generateShims({
+        binDirectory,
+        fills: [fill({ kind: 'cmd', request: 'hostname', body: 'build-box' })],
+      });
+      const { stdout } = await invoke('hostname', []);
+      expect(stdout).toBe('build-box');
+    });
   });
 });

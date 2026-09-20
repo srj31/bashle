@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { access, constants, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Fill, HoleKind } from './types';
 
@@ -26,6 +26,49 @@ export const ESCAPE_COMMANDS = [
   'aws',
   'kubectl',
 ] as const;
+
+/**
+ * Commands where *every* non-flag argument is a file, so the shim can test
+ * existence without parsing a grammar. `grep`, `sed`, `awk` and `jq` are
+ * deliberately absent: their first non-flag argument is a pattern, and a wrong
+ * guess would invent a hole for a file nobody named.
+ */
+export const FILE_READER_COMMANDS = [
+  'cat', 'head', 'tail', 'tac', 'nl', 'wc', 'sort', 'uniq', 'cut',
+  'od', 'xxd', 'base64', 'cksum', 'shasum', 'md5sum', 'file',
+  'stat', 'realpath', 'readlink', 'du',
+] as const;
+
+/** Answered from a fixed default so they do not drown the list of real unknowns. */
+export const PREFILLED_COMMANDS: { name: string; value: string }[] = [
+  { name: 'hostname', value: 'bashle' },
+  { name: 'whoami', value: 'bashle' },
+  { name: 'uuidgen', value: '00000000-0000-4000-8000-000000000000' },
+];
+
+/** 2026-01-01T00:00:00Z — any fixed instant will do, so long as two runs agree. */
+export const DEFAULT_CLOCK_EPOCH = 1767225600;
+
+const BINARY_SEARCH_PATH = [
+  '/usr/bin', '/bin', '/usr/local/bin', '/opt/homebrew/bin', '/usr/sbin', '/sbin',
+];
+
+/**
+ * Resolved here rather than looked up at run time, because the shim sits first
+ * on PATH and would otherwise find itself.
+ */
+async function resolveRealBinary(name: string): Promise<string | null> {
+  for (const directory of BINARY_SEARCH_PATH) {
+    const candidate = join(directory, name);
+    try {
+      await access(candidate, constants.X_OK);
+      return candidate;
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
 
 /** Always quotes, unlike `quoteShellWord`, because these land inside generated bash. */
 function singleQuote(value: string): string {
@@ -101,6 +144,62 @@ printf '\\001h%s\\001' "$_bashle_token"
 exit 0
 `;
 
+/**
+ * Passes through when every named file is there, and holes only on genuine
+ * absence — a file that is in the clone stays real, which is the point of the
+ * clone. A `@file` fill never reaches the hole branch, because materialization
+ * put the file on disk before the run started.
+ */
+function renderFileReaderShim(name: string, realPath: string): string {
+  return `${PREAMBLE}
+_bashle_missing=
+_bashle_skip_next=
+for _bashle_arg in "$@"; do
+  if [[ -n $_bashle_skip_next ]]; then _bashle_skip_next=; continue; fi
+  case "$_bashle_arg" in
+    -|--) continue ;;
+    # A lone short flag is the shape that takes a separate value, so whatever
+    # follows it is not a filename. Skipping it can miss a hole; not skipping
+    # it would invent one for a value like the 2 in "head -n 2", and a false
+    # hole is the worse failure by far.
+    -[a-zA-Z]) _bashle_skip_next=1; continue ;;
+    -*) continue ;;
+  esac
+  [[ -e $_bashle_arg ]] || { _bashle_missing=$_bashle_arg; break; }
+done
+
+if [[ -z $_bashle_missing ]]; then
+  exec ${singleQuote(realPath)} "$@"
+fi
+
+_bashle_request=$_bashle_missing
+_bashle_record 'file' "$_bashle_request" 0 open
+printf '\\001h%s\\001' "$_bashle_token"
+exit 0
+`;
+}
+
+function renderClockShim(realPath: string, epoch: number, fills: Fill[]): string {
+  return [
+    PREAMBLE,
+    commandRequest('date'),
+    renderFillBranches(fills, 'cmd', false),
+    `_bashle_record 'clock' "$_bashle_request" 0 prefilled`,
+    `${singleQuote(realPath)} -d "@${epoch}" "$@" 2>/dev/null || ${singleQuote(realPath)} -r ${epoch} "$@"`,
+  ].join('\n');
+}
+
+function renderPrefilledShim(name: string, value: string, fills: Fill[]): string {
+  return [
+    PREAMBLE,
+    commandRequest(name),
+    renderFillBranches(fills, 'cmd', false),
+    `_bashle_record 'cmd' "$_bashle_request" 0 prefilled`,
+    `printf '%s\\n' ${singleQuote(value)}`,
+    `exit 0`,
+  ].join('\n');
+}
+
 export function renderShim(options: { name: string; kind: HoleKind; fills: Fill[] }): string {
   const isNetwork = (NETWORK_COMMANDS as readonly string[]).includes(options.name);
   return [
@@ -126,18 +225,35 @@ export async function generateShims({
 }: GenerateShimsOptions): Promise<void> {
   await mkdir(binDirectory, { recursive: true });
 
-  const shims: { name: string; kind: HoleKind }[] = [
-    ...NETWORK_COMMANDS.map((name) => ({ name, kind: 'net' as const })),
-    ...ESCAPE_COMMANDS.map((name) => ({ name, kind: 'cmd' as const })),
-  ];
+  const cmdFills = fills.filter((fill) => fill.kind === 'cmd');
+  const written: Promise<unknown>[] = [];
+  const write = (name: string, contents: string): void => {
+    written.push(writeFile(join(binDirectory, name), contents, { mode: 0o755 }));
+  };
 
-  await Promise.all(
-    shims.map(({ name, kind }) =>
-      writeFile(
-        join(binDirectory, name),
-        renderShim({ name, kind, fills: fills.filter((fill) => fill.kind === kind) }),
-        { mode: 0o755 },
-      ),
-    ),
-  );
+  for (const name of NETWORK_COMMANDS) {
+    write(name, renderShim({ name, kind: 'net', fills: fills.filter((f) => f.kind === 'net') }));
+  }
+  for (const name of ESCAPE_COMMANDS) {
+    write(name, renderShim({ name, kind: 'cmd', fills: cmdFills }));
+  }
+
+  // Pass-through needs the real binary, so a name we cannot resolve is left
+  // unshimmed rather than shimmed into something that cannot delegate.
+  for (const name of FILE_READER_COMMANDS) {
+    const realPath = await resolveRealBinary(name);
+    if (realPath) write(name, renderFileReaderShim(name, realPath));
+  }
+  for (const { name, value } of PREFILLED_COMMANDS) {
+    write(name, renderPrefilledShim(name, value, cmdFills));
+  }
+
+  const clock = fills.find((fill) => fill.kind === 'clock');
+  const epoch = clock ? Math.floor(Date.parse(clock.body) / 1000) : DEFAULT_CLOCK_EPOCH;
+  const realDate = await resolveRealBinary('date');
+  if (realDate) {
+    write('date', renderClockShim(realDate, Number.isFinite(epoch) ? epoch : DEFAULT_CLOCK_EPOCH, cmdFills));
+  }
+
+  await Promise.all(written);
 }
