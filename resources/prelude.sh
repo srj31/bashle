@@ -1,3 +1,5 @@
+#!/usr/bin/env bash
+
 : "${_BASHLE_FD:=9}"
 : "${_BASHLE_MAX_RECORDS:=50000}"
 : "${_BASHLE_WATCH:=}"
@@ -20,7 +22,11 @@ _bashle_debug() {
       "$_bashle_source" "$_bashle_line" "$BASH_SUBSHELL" "${FUNCNAME[1]-}" \
       "$_bashle_status" "$_bashle_command"
     if [[ -n $_BASHLE_WATCH ]]; then
-      declare -p $_BASHLE_WATCH 2>/dev/null
+      # A watched name is routinely unset before the script assigns it, and
+      # `declare -p` reports that as a failure. Left alone, that status escapes
+      # the trap and becomes the exit status of whatever it traced — `source`
+      # most visibly — so the tracer must never be the reason a command fails.
+      declare -p $_BASHLE_WATCH 2>/dev/null || :
     fi
   } >&"$_BASHLE_FD"
   set -x

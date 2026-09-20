@@ -356,3 +356,62 @@ describe('probes in a repository subdirectory', () => {
     expect(result.changes.map((c) => c.path)).toContain('build/out.txt');
   });
 });
+
+describe('file fills', () => {
+  const readsAConfig = [
+    "# @file etc/deploy.conf => <<'EOF'",
+    '#   target=staging',
+    '# EOF',
+    '# @probe',
+    'set -euo pipefail',
+    'cat etc/deploy.conf',
+  ].join('\n');
+
+  it('materializes a @file fill so the script reads a file that genuinely exists', async () => {
+    const result = await runScript(readsAConfig);
+    expect(result.stdout.trim()).toBe('target=staging');
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('does not report a materialized fill as a file the run created', async () => {
+    const result = await runScript(readsAConfig);
+    expect(result.changes.map((change) => change.path)).not.toContain('etc/deploy.conf');
+  });
+
+  it('makes a materialized fill reachable by source, by redirection and by [[ -f ]]', async () => {
+    const result = await runScript(
+      [
+        "# @file lib/settings.sh => <<'EOF'",
+        '#   TARGET=staging',
+        '# EOF',
+        '# @probe',
+        'set -euo pipefail',
+        'source lib/settings.sh',
+        'read -r line < lib/settings.sh',
+        '[[ -f lib/settings.sh ]] && echo present',
+        'echo "$TARGET|$line"',
+      ].join('\n'),
+    );
+    expect(result.stdout).toContain('present');
+    expect(result.stdout).toContain('staging|TARGET=staging');
+  });
+
+  it('warns rather than silently misplacing an absolute fill path', async () => {
+    const result = await runScript(
+      ['# @file /etc/deploy.conf => "target=staging"', '# @probe', 'echo done'].join('\n'),
+    );
+    expect(result.warnings.join('\n')).toMatch(/absolute path/);
+  });
+});
+
+describe('the watch list must not change what the script does', () => {
+  it('sources a file without the watch list turning its exit status into a failure', async () => {
+    mkdirSync(join(workspace, 'lib'));
+    writeFileSync(join(workspace, 'lib/settings.sh'), 'TARGET=staging\n');
+    const result = await runScript(
+      ['# @probe', 'set -euo pipefail', 'source lib/settings.sh', 'echo "got $TARGET"'].join('\n'),
+    );
+    expect(result.stdout.trim()).toBe('got staging');
+    expect(result.exitCode).toBe(0);
+  });
+});
