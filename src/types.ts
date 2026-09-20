@@ -85,6 +85,8 @@ export interface Hole {
   occurrenceIndex?: number;
   /** Variables live at the hole, from the DEBUG snapshot of the owning command. */
   context?: Record<string, string>;
+  /** Every shim invocation that answered this request; used to render reach. */
+  tokens: string[];
   reaches: HoleReach;
   /** Set when the line reached an empty variable; survives the hole being filled. */
   suspect?: { emptyVariable: string };

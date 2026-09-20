@@ -1,4 +1,5 @@
-import type { FileChange, RunResult } from './types';
+import type { FileChange, Hole, RunResult } from './types';
+import { holeLabel } from './holes';
 
 export function escapeHtml(text: string): string {
   return text
@@ -83,6 +84,55 @@ function renderOutputTab(results: RunResult[]): string {
   return sections.join('');
 }
 
+/**
+ * Suspect holes sort first and show their cause instead of a fill: the point
+ * of the guard is that a fill is never the easiest thing to reach for next to
+ * an expansion bug.
+ */
+/** The count is of open holes only; pre-filled ones are not work to do. */
+function holesTabLabel(results: RunResult[]): string {
+  const open = results.flatMap((result) => result.holes).filter((hole) => hole.state === 'open');
+  return open.length ? `Holes (${open.length})` : 'Holes';
+}
+
+function renderHolesTab(results: RunResult[]): string {
+  const holes = results.flatMap((result) => result.holes);
+  if (holes.length === 0) return '<p class="empty">This run reached no holes.</p>';
+
+  const rank = (hole: Hole) => (hole.suspect ? 0 : hole.state === 'open' ? 1 : 2);
+  const ordered = [...holes].sort((a, b) => rank(a) - rank(b) || a.id - b.id);
+
+  const rows = ordered.map((hole) => {
+    const where = hole.lineNumber === undefined ? '' : `line ${hole.lineNumber}`;
+    const detail = hole.suspect
+      ? `<div class="suspect">$${escapeHtml(hole.suspect.emptyVariable)} was empty here</div>`
+      : hole.state === 'open'
+        ? [
+            `<div class="goal">wants ${escapeHtml(hole.goal)}${
+              hole.reaches.variables.length
+                ? ` · reaches ${escapeHtml(hole.reaches.variables.join(', '))}`
+                : ''
+            }</div>`,
+            `<pre class="fill">${escapeHtml(hole.suggestedFill)}</pre>`,
+          ].join('')
+        : `<div class="goal">${escapeHtml(hole.state)}</div>`;
+
+    return `<section class="hole${hole.suspect ? ' is-suspect' : ''}">
+      <h3>${escapeHtml(holeLabel(hole))} <code>${escapeHtml(hole.request)}</code> <span class="where">${escapeHtml(where)}</span></h3>
+      ${detail}
+    </section>`;
+  });
+
+  const diagnostics = results.flatMap((result) =>
+    result.holeDiagnostics.map(
+      (diagnostic) =>
+        `<p class="suspect">\u25c7${diagnostic.holeId} was used as a number on line ${diagnostic.lineNumber}.</p>`,
+    ),
+  );
+
+  return [...rows, ...diagnostics].join('');
+}
+
 function renderWarnings(results: RunResult[]): string {
   const warnings = results.flatMap((result) => result.warnings);
   if (warnings.length === 0) return '';
@@ -124,6 +174,11 @@ const STYLES = `
   td.line, td.iteration { font-variant-numeric: tabular-nums; opacity: 0.6; width: 1%; white-space: nowrap; }
   td.command code { font-family: var(--vscode-editor-font-family); white-space: pre-wrap; }
   .exit { font-variant-numeric: tabular-nums; }
+  .hole h3 { font-weight: 500; font-size: 13px; margin: 12px 0 4px; }
+  .hole .where { opacity: 0.6; font-size: 11px; }
+  .hole .goal { opacity: 0.7; font-size: 12px; }
+  .hole .fill { margin: 4px 0; padding: 4px 8px; background: var(--vscode-textCodeBlock-background); }
+  .suspect { color: var(--vscode-editorWarning-foreground); font-size: 12px; }
   .exit.good { opacity: 0.5; } .exit.bad { color: var(--vscode-testing-iconFailed); font-weight: 600; }
   .var { font-family: var(--vscode-editor-font-family); margin-right: 8px; opacity: 0.8; }
   details.change { margin-bottom: 8px; border: 1px solid var(--vscode-panel-border); border-radius: 4px; }
@@ -150,13 +205,17 @@ const TAB_SCRIPT = `
   }));
 `;
 
-export function renderPanelHtml(results: RunResult[], activeTab: 'files' | 'trace' | 'output' = 'files'): string {
+export function renderPanelHtml(
+  results: RunResult[],
+  activeTab: 'files' | 'holes' | 'trace' | 'output' = 'files',
+): string {
   if (results.length === 0) {
     return `<style>${STYLES}</style><p class="empty">No probes have run yet. Add a <code># @probe</code> comment and save.</p>`;
   }
 
-  const tabs: Array<['files' | 'trace' | 'output', string, string]> = [
+  const tabs: Array<['files' | 'holes' | 'trace' | 'output', string, string]> = [
     ['files', 'Files', renderFilesTab(results)],
+    ['holes', holesTabLabel(results), renderHolesTab(results)],
     ['trace', 'Trace', renderTraceTab(results)],
     ['output', 'Output', renderOutputTab(results)],
   ];

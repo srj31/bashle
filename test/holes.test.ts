@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { assembleHoles } from '../src/holes';
+import { assembleHoles, renderHoleSentinels } from '../src/holes';
 import type { FileChange, HoleRecord, LineExecution, Trace } from '../src/types';
 
 const sentinel = (token: string) => `\x01h${token}\x01`;
@@ -270,5 +270,37 @@ describe('assembleHoles', () => {
 
     expect(holes[0]!.reaches.variables).toEqual(['version']);
     expect(holes[0]!.reaches.lineNumbers).toEqual([6]);
+  });
+
+  describe('renderHoleSentinels', () => {
+    const twoHoles = () =>
+      assembleHoles({
+        trace: trace([
+          record({ token: '1.1', request: 'GET https://api/a' }),
+          record({ token: '2.1', request: 'GET https://api/b' }),
+        ]),
+        changes: [],
+      }).holes;
+
+    it('renders a raw sentinel as the holes display id', () => {
+      expect(renderHoleSentinels(`releases/${sentinel('1.1')}/log`, twoHoles())).toBe(
+        'releases/\u25c71/log',
+      );
+    });
+
+    it('unwraps the ANSI-C quoting bash puts around a sentinel value', () => {
+      expect(renderHoleSentinels(`version=${quotedSentinel('2.1')}`, twoHoles())).toBe(
+        'version=\u25c72',
+      );
+      expect(renderHoleSentinels(`mkdir -p $'releases/\\001h1.1\\001'`, twoHoles())).toBe(
+        'mkdir -p releases/\u25c71',
+      );
+    });
+
+    it('leaves text alone when it carries no sentinel', () => {
+      expect(renderHoleSentinels("mkdir -p releases/staging", twoHoles())).toBe(
+        'mkdir -p releases/staging',
+      );
+    });
   });
 });

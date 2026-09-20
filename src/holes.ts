@@ -105,6 +105,7 @@ export function assembleHoles({ trace, changes }: AssembleHolesOptions): Assembl
           const suspect = suspectFor(owner);
           return suspect ? { suspect } : {};
         })(),
+        tokens: [],
         reaches: { variables: [], lineNumbers: [], createdPaths: [] },
         suggestedFill: `# ${DIRECTIVE_BY_KIND[record.kind]} ${record.request} => ""`,
       },
@@ -177,5 +178,36 @@ export function assembleHoles({ trace, changes }: AssembleHolesOptions): Assembl
     }
   }
 
-  return { holes: entries.map((entry) => entry.hole), diagnostics };
+  return {
+    holes: entries.map((entry) => ({ ...entry.hole, tokens: [...entry.tokens] })),
+    diagnostics,
+  };
+}
+
+/** How a hole reads once a person sees it. */
+export const holeLabel = (hole: Hole): string => `${hole.suspect ? '\u25c7!' : '\u25c7'}${hole.id}`;
+
+const ANSI_C_QUOTED = /\$'((?:[^'\\]|\\.)*)'/g;
+
+/**
+ * Replaces a sentinel with the hole's display id wherever it surfaces: variable
+ * values, expanded commands, the script's own output, and filenames. Bash wraps
+ * a control-character value in ANSI-C quoting, so that wrapper is unwrapped too
+ * rather than left around a rendered id.
+ */
+export function renderHoleSentinels(text: string, holes: Hole[]): string {
+  const idByToken = new Map<string, number>();
+  for (const hole of holes) for (const token of hole.tokens) idByToken.set(token, hole.id);
+
+  const replaceTokens = (value: string): string =>
+    value.replace(holeSentinelMatcher(), (whole, raw?: string, escaped?: string) => {
+      const id = idByToken.get((raw ?? escaped)!);
+      return id === undefined ? whole : `\u25c7${id}`;
+    });
+
+  return replaceTokens(
+    text.replace(ANSI_C_QUOTED, (whole, inner: string) =>
+      holeSentinelMatcher().test(inner) ? replaceTokens(inner) : whole,
+    ),
+  );
 }

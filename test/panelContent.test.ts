@@ -101,4 +101,73 @@ describe('renderPanelHtml', () => {
     ]);
     expect(html).toContain('1 failing');
   });
+
+  it('lists holes in their own tab, with the fill for an open one', () => {
+    const html = renderPanelHtml([
+      result({
+        holes: [
+          {
+            id: 1,
+            kind: 'net',
+            request: 'GET https://api/latest',
+            state: 'open',
+            goal: 'stdout',
+            lineNumber: 5,
+            tokens: ['1.1'],
+            reaches: { variables: ['version'], lineNumbers: [6], createdPaths: [] },
+            suggestedFill: '# @net GET https://api/latest => ""',
+          },
+        ],
+      }),
+    ]);
+
+    expect(html).toContain('Holes');
+    expect(html).toContain('GET https://api/latest');
+    expect(html).toContain('@net GET https://api/latest');
+  });
+
+  it('leads a suspect hole with the empty variable and does not offer its fill', () => {
+    const html = renderPanelHtml([
+      result({
+        holes: [
+          {
+            id: 1,
+            kind: 'file',
+            request: '/deploy.conf',
+            state: 'open',
+            goal: 'contents',
+            lineNumber: 5,
+            tokens: ['1.1'],
+            reaches: { variables: [], lineNumbers: [], createdPaths: [] },
+            suspect: { emptyVariable: 'dest' },
+            suggestedFill: '# @file /deploy.conf => ""',
+          },
+        ],
+      }),
+    ]);
+
+    expect(html).toContain('was empty here');
+    expect(html).not.toContain('@file /deploy.conf');
+  });
+
+  it('escapes a hole request rather than letting it reach the page as markup', () => {
+    const html = renderPanelHtml([
+      result({
+        holes: [
+          {
+            id: 1,
+            kind: 'cmd',
+            request: '<img src=x onerror=alert(1)>',
+            state: 'open',
+            goal: 'stdout',
+            tokens: ['1.1'],
+            reaches: { variables: [], lineNumbers: [], createdPaths: [] },
+            suggestedFill: '# @cmd x => ""',
+          },
+        ],
+      }),
+    ]);
+
+    expect(html).not.toContain('<img src=x');
+  });
 });

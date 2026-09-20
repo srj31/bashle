@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { formatInlineAnnotation, formatHoverMarkdown, groupExecutionsByLine } from './annotations';
-import type { LineExecution, RunResult } from './types';
+import type { Hole, LineExecution, RunResult } from './types';
 
 const INLINE_MARGIN = '0 0 0 2.5em';
 
@@ -44,18 +44,19 @@ export class AnnotationRenderer implements vscode.Disposable {
     document: vscode.TextDocument,
     lineNumber: number,
     executions: LineExecution[],
+    holes: Hole[],
   ): vscode.DecorationOptions | null {
     const lineIndex = lineNumber - 1;
     if (lineIndex < 0 || lineIndex >= document.lineCount) return null;
 
     const lineText = document.lineAt(lineIndex).text;
-    const annotation = formatInlineAnnotation(executions, lineText);
+    const annotation = formatInlineAnnotation(executions, lineText, holes);
     if (!annotation) return null;
 
     return {
       range: this.endOfLine(document, lineIndex),
       renderOptions: { after: { contentText: annotation } },
-      hoverMessage: new vscode.MarkdownString(formatHoverMarkdown(executions, lineText)),
+      hoverMessage: new vscode.MarkdownString(formatHoverMarkdown(executions, lineText, holes)),
     };
   }
 
@@ -68,7 +69,7 @@ export class AnnotationRenderer implements vscode.Disposable {
 
     for (const result of results) {
       for (const [lineNumber, executions] of groupExecutionsByLine(result.trace.executions)) {
-        const decoration = this.annotationFor(document, lineNumber, executions);
+        const decoration = this.annotationFor(document, lineNumber, executions, result.holes);
         if (!decoration) continue;
         const lastExitCode = executions[executions.length - 1]?.exitCode;
         (lastExitCode ? failed : succeeded).push(decoration);

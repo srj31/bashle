@@ -4,7 +4,8 @@ import { parseProbes } from './probeParser';
 import { discoverBash } from './bashDiscovery';
 import { runProbe } from './runner';
 import { formatInlineAnnotation, groupExecutionsByLine } from './annotations';
-import type { RunResult } from './types';
+import { holeLabel, renderHoleSentinels } from './holes';
+import type { Hole, RunResult } from './types';
 
 const DIM = '\x1b[2m';
 const RED = '\x1b[31m';
@@ -26,7 +27,7 @@ function printAnnotatedSource(source: string, result: RunResult): void {
 
   lines.forEach((lineText, index) => {
     const executions = byLine.get(index + 1) ?? [];
-    const annotation = formatInlineAnnotation(executions, lineText);
+    const annotation = formatInlineAnnotation(executions, lineText, result.holes);
     const failed = executions[executions.length - 1]?.exitCode;
     const gutter = `${DIM}${String(index + 1).padStart(3)}${RESET} `;
 
@@ -37,6 +38,50 @@ function printAnnotatedSource(source: string, result: RunResult): void {
     const color = failed ? RED : DIM;
     console.log(`${gutter}${padTo(lineText, ANNOTATION_COLUMN)}${color}${annotation}${RESET}`);
   });
+}
+
+/**
+ * Open holes come first because they are the ones still to answer, and a
+ * suspect hole leads with its cause so the fill is never the easiest thing to
+ * reach for next to a bug.
+ */
+function printHoles(result: RunResult): void {
+  const open = result.holes.filter((hole) => hole.state === 'open');
+  if (result.holes.length === 0) return;
+
+  const ordered = [...result.holes].sort((a, b) => {
+    const rank = (hole: Hole) => (hole.suspect ? 0 : hole.state === 'open' ? 1 : 2);
+    return rank(a) - rank(b) || a.id - b.id;
+  });
+
+  console.log(`\n${DIM}holes${RESET} ${DIM}(${open.length} open)${RESET}`);
+  for (const hole of ordered) {
+    const where = hole.lineNumber === undefined ? '' : ` ${DIM}line ${hole.lineNumber}${RESET}`;
+    const colour = hole.suspect ? YELLOW : hole.state === 'open' ? CYAN : DIM;
+    console.log(`  ${colour}${holeLabel(hole)}${RESET} ${hole.request}${where}`);
+
+    if (hole.suspect) {
+      console.log(`      ${YELLOW}$${hole.suspect.emptyVariable} was empty here${RESET}`);
+      continue;
+    }
+    if (hole.state !== 'open') {
+      console.log(`      ${DIM}${hole.state}${RESET}`);
+      continue;
+    }
+
+    const reach = [
+      hole.reaches.variables.length ? `${hole.reaches.variables.join(', ')}` : '',
+      hole.reaches.createdPaths.length ? `${hole.reaches.createdPaths.length} file(s)` : '',
+    ].filter(Boolean);
+    console.log(`      ${DIM}wants ${hole.goal}${reach.length ? ` · reaches ${reach.join(' · ')}` : ''}${RESET}`);
+    console.log(`      ${DIM}fill:${RESET} ${hole.suggestedFill}`);
+  }
+
+  for (const diagnostic of result.holeDiagnostics) {
+    console.log(
+      `  ${YELLOW}◇${diagnostic.holeId} was used as a number on line ${diagnostic.lineNumber}${RESET}`,
+    );
+  }
 }
 
 function printResult(source: string, result: RunResult): void {
@@ -55,8 +100,11 @@ function printResult(source: string, result: RunResult): void {
     );
   }
 
-  if (result.stdout.trim()) console.log(`\n${DIM}stdout${RESET}\n${result.stdout.trimEnd()}`);
-  if (result.stderr.trim()) console.log(`\n${DIM}stderr${RESET}\n${RED}${result.stderr.trimEnd()}${RESET}`);
+  const show = (text: string) => renderHoleSentinels(text, result.holes);
+  if (result.stdout.trim()) console.log(`\n${DIM}stdout${RESET}\n${show(result.stdout.trimEnd())}`);
+  if (result.stderr.trim()) console.log(`\n${DIM}stderr${RESET}\n${RED}${show(result.stderr.trimEnd())}${RESET}`);
+
+  printHoles(result);
 
   console.log(`\n${DIM}files changed in the sandbox${RESET}`);
   if (result.changes.length === 0) {
@@ -65,7 +113,7 @@ function printResult(source: string, result: RunResult): void {
     for (const change of result.changes) {
       const mark = change.kind === 'created' ? '+' : change.kind === 'deleted' ? '-' : '~';
       const color = change.kind === 'deleted' ? RED : GREEN;
-      console.log(`  ${color}${mark} ${change.path}${RESET}`);
+      console.log(`  ${color}${mark} ${show(change.path)}${RESET}`);
     }
   }
 
