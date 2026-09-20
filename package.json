@@ -143,5 +143,8 @@
   },
   "bugs": {
     "url": "https://github.com/srj31/bashle/issues"
+  },
+  "dependencies": {
+    "ignore": "^7.0.9"
   }
 }

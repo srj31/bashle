@@ -190,8 +190,22 @@ Paths in the **Files** tab are relative to the workspace root too, so they read 
 with `⌘⌥R` / `Ctrl+Alt+R` when you actually want a run.
 
 **On a large repo**, the clone itself is instant on a copy-on-write filesystem (no disk used until
-something writes), but bashle measures the workspace first and refuses above `maxCloneBytes` (512 MB by default). `.git`,
-`node_modules` and `.bashle` are cloned but excluded from the diff, so they never show up as changes.
+something writes), but bashle measures what it is about to copy and refuses above `maxCloneBytes`
+(512 MB by default). `.git` and `node_modules` are not copied at all, so they count against neither the
+limit nor the diff. To skip more, put a `.bashleignore` beside your scripts:
+
+```gitignore
+# Same syntax as .gitignore, including negation.
+vendor/
+*.tar.gz
+fixtures/**/*.bin
+
+# The two built-in defaults can be won back if a script really needs them:
+# !node_modules
+```
+
+Only the `.bashleignore` at the workspace root is read; `.gitignore` is deliberately *not* consulted, so
+build output a script under test reads — `dist/`, `.env` — still reaches the sandbox.
 
 **Before you probe a script with real side effects**, know exactly what the sandbox covers. Writes
 outside the clone, network access and `sudo` are blocked by the kernel. Commands that do their work in
@@ -229,7 +243,7 @@ a Neovim backend can be added without reworking the rest.
 | `bashle.timeoutMs` | `5000` | Kill a probe run after this long. The partial trace is kept. |
 | `bashle.enforceSandbox` | `true` | Kernel enforcement — `sandbox-exec` on macOS, bubblewrap on Linux. Turning it off leaves only the clone containing the run. |
 | `bashle.maxRecords` | `50000` | Stop tracing after this many events and mark the trace truncated. |
-| `bashle.maxCloneBytes` | `512 MB` | Refuse to clone a workspace larger than this. |
+| `bashle.maxCloneBytes` | `512 MB` | Refuse to clone a workspace larger than this, counting only what `.bashleignore` keeps. |
 | `bashle.watchAllVariables` | `false` | Snapshot every variable instead of only those the script names. Slower. |
 
 ## Commands

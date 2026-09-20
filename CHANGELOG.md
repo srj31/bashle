@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- `.bashleignore`: exclude paths from the scratch clone using `.gitignore` syntax, negation included.
+  `.git` and `node_modules` are now skipped by default — a `!node_modules` line wins them back.
+- `maxCloneBytes` now measures only the files that will actually be copied, so a large `node_modules`
+  no longer pushes a workspace over the limit.
+
 ## 0.1.0
 
 First release.
