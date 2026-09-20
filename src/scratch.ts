@@ -31,12 +31,31 @@ export async function measureDirectoryBytes(root: string): Promise<number> {
   return Number(stdout.trim().split(/\s+/)[0] ?? 0) * 1024;
 }
 
-async function cloneTree(sourceRoot: string, destination: string): Promise<void> {
-  try {
-    await run('cp', ['-c', '-R', `${sourceRoot}/.`, destination]);
-  } catch {
-    await run('cp', ['-R', `${sourceRoot}/.`, destination]);
+/**
+ * Copy-on-write flags, so cloning a workspace is instant and costs no disk
+ * until the run writes: `-c` is APFS clonefile, `--reflink=auto` is the GNU
+ * equivalent on btrfs and xfs. Both degrade to a plain recursive copy.
+ */
+const CLONE_FLAGS: Partial<Record<NodeJS.Platform, string>> = {
+  darwin: '-c',
+  linux: '--reflink=auto',
+};
+
+async function cloneTree(
+  sourceRoot: string,
+  destination: string,
+  platform: NodeJS.Platform = process.platform,
+): Promise<void> {
+  const cowFlag = CLONE_FLAGS[platform];
+  if (cowFlag) {
+    try {
+      await run('cp', [cowFlag, '-R', `${sourceRoot}/.`, destination]);
+      return;
+    } catch {
+      // A cp without the flag, or a filesystem that cannot clone: copy properly.
+    }
   }
+  await run('cp', ['-R', `${sourceRoot}/.`, destination]);
 }
 
 export interface CreateScratchOptions {

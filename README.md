@@ -34,8 +34,8 @@ done
 
 | | |
 |---|---|
-| **bash ≥ 4.1** | For `BASH_XTRACEFD`. macOS ships bash **3.2**, which will not work — `brew install bash` and bashle finds it automatically. |
-| **macOS** | Containment uses `sandbox-exec` and APFS clones. Linux support is not built yet. |
+| **bash ≥ 4.1** | For `BASH_XTRACEFD`. Every current Linux distribution ships 5.x. macOS ships bash **3.2**, which will not work — `brew install bash` and bashle finds it automatically. |
+| **macOS or Linux** | Kernel containment is `sandbox-exec` on macOS and [bubblewrap](https://github.com/containers/bubblewrap) on Linux — `apt install bubblewrap`, `dnf install bubblewrap`, `pacman -S bubblewrap`. Without it bashle still runs, and says on every run that only the clone is containing it. |
 | **VS Code ≥ 1.85** | |
 
 ## Install
@@ -47,6 +47,12 @@ git clone https://github.com/srj31/bashle && cd bashle
 npm install
 npm run package
 code --install-extension bashle-0.1.0.vsix     # or: cursor --install-extension ...
+```
+
+On Linux, install bubblewrap too — it is what enforces containment there:
+
+```bash
+sudo apt install bubblewrap        # or dnf / pacman / zypper
 ```
 
 Reload the window. Bashle activates on any file VS Code recognises as `shellscript`.
@@ -124,23 +130,29 @@ once, and the values of variables that line mentions.
 
 Probe runs execute real commands. Bashle contains them in three layers, and tells you which ones are active.
 
-1. **Scratch clone.** Your workspace is cloned with `cp -c` (APFS clonefile — instant, and consumes
-   no disk until something writes), and the script runs with its cwd there. Relative paths hit the
-   clone, and they hit files that genuinely exist, so the script behaves realistically.
+1. **Scratch clone.** Your workspace is cloned copy-on-write — `cp -c` (APFS clonefile) on macOS,
+   `cp --reflink=auto` (btrfs, xfs) on Linux — so it is instant and consumes no disk until something
+   writes; on a filesystem without copy-on-write it falls back to a plain copy. The script runs with
+   its cwd there, so relative paths hit the clone, and they hit files that genuinely exist.
 2. **Redirected environment.** `HOME` and `TMPDIR` point inside the clone, so `~/.config/...` and
    `mktemp` are contained too.
-3. **Kernel enforcement.** A `sandbox-exec` profile denies all writes outside the clone, denies the
-   network outright, and denies executing `sudo`. A blocked write fails visibly instead of silently
-   succeeding.
+3. **Kernel enforcement.** All writes outside the clone are denied, the network is denied outright,
+   and `sudo` cannot be executed. A blocked write fails visibly instead of silently succeeding.
+   On macOS this is a `sandbox-exec` profile; on Linux it is bubblewrap, which binds the whole
+   filesystem read-only, rebinds only the clone writable, and puts the run in its own network and
+   PID namespaces.
 
 Afterwards the clone is diffed against your pristine workspace to produce the Files tab, then deleted.
 
 **What this does not protect you from.** A command that does its work in another process — `docker`,
-`launchctl`, anything talking to a system daemon — is not stopped by a file sandbox. Treat probes on
-scripts like those with the same care you'd treat running them.
+`launchctl`, `systemctl`, anything talking to a system daemon — is not stopped by a file sandbox.
+Treat probes on scripts like those with the same care you'd treat running them.
 
-The status bar shows `⛨` when kernel enforcement is on and `⚠` when only layers 1–2 are, so you are
-never guessing about which you have.
+**If the sandbox is unavailable**, bashle does not refuse to run and does not pretend. The status bar
+shows `⛨` when kernel enforcement is on and `⚠` when only layers 1–2 are, so you are never guessing
+about which you have, and every degraded run carries a warning naming what is missing — bubblewrap not
+installed, unprivileged user namespaces disabled, or a kernel that refused a network namespace (some
+container runtimes do, and the run is then contained on disk but can still reach the network).
 
 ## Using it in a real repository
 
@@ -169,10 +181,10 @@ Paths in the **Files** tab are relative to the workspace root too, so they read 
 ```
 
 `runOnSave: false` is worth considering for a repo whose scripts are slow or heavy — you then drive it
-with `⌘⌥R` when you actually want a run.
+with `⌘⌥R` / `Ctrl+Alt+R` when you actually want a run.
 
-**On a large repo**, the clone itself is instant (APFS clonefile, no disk used until something writes),
-but bashle measures the workspace first and refuses above `maxCloneBytes` (512 MB by default). `.git`,
+**On a large repo**, the clone itself is instant on a copy-on-write filesystem (no disk used until
+something writes), but bashle measures the workspace first and refuses above `maxCloneBytes` (512 MB by default). `.git`,
 `node_modules` and `.bashle` are cloned but excluded from the diff, so they never show up as changes.
 
 **Before you probe a script with real side effects**, know exactly what the sandbox covers. Writes
@@ -198,21 +210,21 @@ The trace model already records subshell level and nesting depth, so widening co
 
 | Setting | Default | |
 |---|---|---|
-| `bashle.bashPath` | *(auto)* | Path to a bash ≥ 4.1. Auto-discovers Homebrew, then `PATH`. |
-| `bashle.runOnSave` | `true` | Run probes on save. Turn off to drive it with `⌘⌥R` only. |
+| `bashle.bashPath` | *(auto)* | Path to a bash ≥ 4.1. Auto-discovers Homebrew on macOS, `/usr/bin/bash` on Linux, then `PATH`. |
+| `bashle.runOnSave` | `true` | Run probes on save. Turn off to drive it with `⌘⌥R` / `Ctrl+Alt+R` only. |
 | `bashle.timeoutMs` | `5000` | Kill a probe run after this long. The partial trace is kept. |
-| `bashle.enforceSandbox` | `true` | Kernel enforcement. Turning it off leaves only the clone containing the run. |
+| `bashle.enforceSandbox` | `true` | Kernel enforcement — `sandbox-exec` on macOS, bubblewrap on Linux. Turning it off leaves only the clone containing the run. |
 | `bashle.maxRecords` | `50000` | Stop tracing after this many events and mark the trace truncated. |
 | `bashle.maxCloneBytes` | `512 MB` | Refuse to clone a workspace larger than this. |
 | `bashle.watchAllVariables` | `false` | Snapshot every variable instead of only those the script names. Slower. |
 
 ## Commands
 
-| | |
-|---|---|
-| `⌘⌥R` | Run probes in this file |
-| `⌘⌥I` | Inspect this line (opens the Trace tab) |
-| — | Bashle: Show panel · Bashle: Clear annotations |
+| macOS | Linux | |
+|---|---|---|
+| `⌘⌥R` | `Ctrl+Alt+R` | Run probes in this file |
+| `⌘⌥I` | `Ctrl+Alt+I` | Inspect this line (opens the Trace tab) |
+| — | — | Bashle: Show panel · Bashle: Clear annotations |
 
 ## How it works
 
@@ -268,22 +280,24 @@ the loop runs **four** times instead of three. You can see it in the iteration c
 1. Open this folder in VS Code.
 2. Press **F5** (*Run Bashle in a new VS Code window*). It builds first, then opens a second window
    with the extension loaded and `examples/` as its workspace.
-3. Open `examples/deploy.sh` in that window and hit **⌘S**.
+3. Open `examples/deploy.sh` in that window and hit **⌘S** / **Ctrl+S**.
 
-Annotations appear at end of line, hover a line for every execution of it, and `⌘⌥I` opens the panel.
-Edit and save again to watch it update. Extension logs go to the *Debug Console* of the first window;
-reload the second window with **⌘R** after changing extension code.
+Annotations appear at end of line, hover a line for every execution of it, and `⌘⌥I` / `Ctrl+Alt+I`
+opens the panel. Edit and save again to watch it update. Extension logs go to the *Debug Console* of
+the first window; reload the second window after changing extension code.
 
 ### Tests
 
 ```bash
-npm test          # 131 tests, including end-to-end runs against real bash and a real sandbox
+npm test          # 156 tests, including end-to-end runs against real bash and a real sandbox
 npm run build     # bundle to dist/extension.js
 npm run typecheck
 ```
 
 The containment tests are adversarial on purpose: scripts that try to write to `/tmp`, to an absolute
-path back inside the real workspace, and to delete real files must each be blocked *and* reported.
+path back inside the real workspace, to delete real files, and to open a socket must each be blocked
+*and* reported. They run against whichever sandbox the host has, so the suite is the check that the
+port holds on both platforms.
 
 ## License
 

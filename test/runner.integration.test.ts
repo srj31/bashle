@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path';
 import { runProbe } from '../src/runner';
 import { parseProbes } from '../src/probeParser';
 import { discoverBash } from '../src/bashDiscovery';
+import { discoverContainment } from '../src/containment';
 import type { RunResult } from '../src/types';
 
 const PRELUDE = resolve(__dirname, '..', 'resources', 'prelude.sh');
@@ -49,6 +50,17 @@ async function runScript(
 
 const executionsOnLine = (result: RunResult, lineNumber: number) =>
   result.trace.executions.filter((e) => e.lineNumber === lineNumber);
+
+/**
+ * The escape tests are assertions about the kernel sandbox, so on a host
+ * without one — a Linux box with no bubblewrap — there is nothing to assert
+ * and they say so rather than failing for a missing dependency.
+ */
+async function kernelSandbox(): Promise<{ enforced: boolean; networkIsolated: boolean }> {
+  const containment = await discoverContainment();
+  if (!('kind' in containment)) return { enforced: false, networkIsolated: false };
+  return { enforced: true, networkIsolated: containment.allowNetwork !== true };
+}
 
 describe('runProbe end to end', () => {
   it('annotates each line with the command bash actually ran', async () => {
@@ -130,7 +142,7 @@ describe('runProbe end to end', () => {
     expect(result.probe.kind).toBe('function');
     expect(result.verdict).toEqual({ kind: 'pass' });
     expect(result.stdout).not.toContain('main ran');
-    expect(result.warnings).toEqual([]);
+    expect(result.warnings.join(' ')).not.toMatch(/top-level body ran/);
   });
 
   it('warns when a function probe had to run an unguarded top-level body', async () => {
@@ -155,7 +167,10 @@ describe('runProbe containment', () => {
 
   it('reports a modification without modifying the real file', async () => {
     writeFileSync(join(workspace, 'data.txt'), 'one\ntwo\n');
-    const result = await runScript(['# @probe', "sed -i '' 's/two/TWO/' data.txt"].join('\n'));
+    // Rewrite via a temporary file: `sed -i` takes a suffix on BSD and not on GNU.
+    const result = await runScript(
+      ['# @probe', "sed 's/two/TWO/' data.txt > edited", 'mv edited data.txt'].join('\n'),
+    );
     const modified = result.changes.find((c) => c.path === 'data.txt');
     expect(modified?.kind).toBe('modified');
     expect(modified?.diff).toContain('+TWO');
@@ -169,16 +184,31 @@ describe('runProbe containment', () => {
     expect(existsSync(join(workspace, 'doomed.txt'))).toBe(true);
   });
 
-  it('blocks a write to an absolute path outside the scratch clone', async () => {
+  it('blocks a write to an absolute path outside the scratch clone', async (context) => {
+    if (!(await kernelSandbox()).enforced) return context.skip();
     const escapeTarget = join('/tmp', `bashle-escape-${process.pid}.txt`);
     const result = await runScript(['# @probe', `echo pwned > ${escapeTarget}`].join('\n'));
     expect(existsSync(escapeTarget)).toBe(false);
     expect(result.exitCode).not.toBe(0);
   });
 
-  it('blocks a write back into the real workspace by absolute path', async () => {
+  it('blocks a write back into the real workspace by absolute path', async (context) => {
+    if (!(await kernelSandbox()).enforced) return context.skip();
     const result = await runScript(['# @probe', `echo pwned > ${workspace}/escaped.txt`].join('\n'));
     expect(existsSync(join(workspace, 'escaped.txt'))).toBe(false);
+  });
+
+  it('blocks the run from reaching the network', async (context) => {
+    // Some kernels refuse a network namespace; the run then says so rather than
+    // claiming an isolation it does not have, and there is nothing to assert.
+    if (!(await kernelSandbox()).networkIsolated) return context.skip();
+
+    const result = await runScript(
+      ['# @probe', 'exec 3<>/dev/tcp/1.1.1.1/80 && echo connected'].join('\n'),
+      { timeoutMs: 5000 },
+    );
+    expect(result.stdout).not.toContain('connected');
+    expect(result.exitCode).not.toBe(0);
   });
 
   it('kills a runaway script and still returns what ran', async () => {

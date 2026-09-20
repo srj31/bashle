@@ -65,7 +65,7 @@
         "bashle.bashPath": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Path to a bash >= 4.1. Leave empty to auto-discover (Homebrew, then PATH). macOS `/bin/bash` is 3.2 and is **not** supported."
+          "markdownDescription": "Path to a bash >= 4.1. Leave empty to auto-discover (Homebrew on macOS, `/usr/bin/bash` on Linux, then PATH). macOS `/bin/bash` is 3.2 and is **not** supported."
         },
         "bashle.runOnSave": {
           "type": "boolean",
@@ -80,7 +80,7 @@
         "bashle.enforceSandbox": {
           "type": "boolean",
           "default": true,
-          "description": "Enforce containment with sandbox-exec. When false, runs are contained by scratch clone + env only."
+          "description": "Enforce containment with the kernel: sandbox-exec on macOS, bubblewrap on Linux. When false, runs are contained by scratch clone + env only."
         },
         "bashle.maxRecords": {
           "type": "number",

@@ -5,11 +5,9 @@ import type { Probe, RunResult, Trace } from './types';
 import { applyProcessExitCode, parseTrace } from './traceParser';
 import { detectChanges, snapshotDirectory } from './fsDiffer';
 import { createScratchClone, type ScratchWorkspace } from './scratch';
-import { buildSandboxProfile } from './sandbox';
+import { planContainment } from './containment';
 import { quoteShellWord, splitShellWords } from './shellWords';
 import { evaluateVerdict } from './verdict';
-
-export const SANDBOX_EXEC = '/usr/bin/sandbox-exec';
 
 const TRACE_FILE_DESCRIPTOR = 9;
 const STDIO_BEFORE_TRACE_FD = ['pipe', 'pipe', 'pipe', 'ignore', 'ignore', 'ignore', 'ignore', 'ignore', 'ignore'] as const;
@@ -55,18 +53,19 @@ async function writeFunctionDriver(
   return driverPath;
 }
 
-function buildCommand(options: {
+export function buildCommand(options: {
+  containmentPrefix: string[];
   bashPath: string;
   entryScript: string;
   argv: string[];
-  profilePath: string | null;
 }): { command: string; args: string[] } {
-  const bashInvocation = [options.entryScript, ...options.argv];
-  if (!options.profilePath) return { command: options.bashPath, args: bashInvocation };
-  return {
-    command: SANDBOX_EXEC,
-    args: ['-f', options.profilePath, options.bashPath, ...bashInvocation],
-  };
+  const invocation = [
+    ...options.containmentPrefix,
+    options.bashPath,
+    options.entryScript,
+    ...options.argv,
+  ];
+  return { command: invocation[0]!, args: invocation.slice(1) };
 }
 
 function spawnTraced(
@@ -157,19 +156,21 @@ export async function runProbe(options: RunProbeOptions): Promise<RunResult> {
       : scriptInScratch;
     const argv = isFunctionProbe ? [] : splitShellWords(options.probe.argsRaw);
 
-    let profilePath: string | null = null;
-    if (options.enforceSandbox) {
-      profilePath = join(scratch.bookkeepingDirectory, 'profile.sb');
-      await writeFile(profilePath, buildSandboxProfile({ writableRoots: [scratch.root] }), 'utf8');
-    } else {
-      warnings.push('Sandbox enforcement is off; only the scratch clone is containing this run.');
+    const containment = await planContainment({
+      enforce: options.enforceSandbox,
+      scratchRoot: scratch.root,
+      bookkeepingDirectory: scratch.bookkeepingDirectory,
+    });
+    if (containment.profile) {
+      await writeFile(containment.profile.path, containment.profile.contents, 'utf8');
     }
+    if (containment.warning) warnings.push(containment.warning);
 
     const { command, args } = buildCommand({
+      containmentPrefix: containment.prefix,
       bashPath: options.bashPath,
       entryScript,
       argv,
-      profilePath,
     });
 
     const outcome = await spawnTraced(command, args, {
@@ -215,7 +216,7 @@ export async function runProbe(options: RunProbeOptions): Promise<RunResult> {
       timedOut: outcome.timedOut,
       changes,
       verdict: evaluateVerdict(options.probe.expectation, outcome.stdout, outcome.exitCode),
-      sandboxEnforced: profilePath !== null,
+      sandboxEnforced: containment.kind !== 'none',
       durationMs: Date.now() - startedAt,
       warnings,
     };
