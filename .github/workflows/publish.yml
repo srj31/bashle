@@ -97,22 +97,23 @@ jobs:
           name: bashle-${{ env.VERSION }}
           path: bashle.vsix
 
-      - name: Publish to the VS Code Marketplace
-        if: ${{ !inputs.dry_run }}
-        env:
-          VSCE_PAT: ${{ secrets.VSCE_PAT }}
-        run: npx vsce publish --no-dependencies --packagePath bashle.vsix
-
       - name: Publish to Open VSX
         if: ${{ !inputs.dry_run }}
         env:
           OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: npx ovsx publish bashle.vsix -p "$OVSX_PAT"
+
+      # Optional second registry: set VSCE_PAT to turn it on, nothing to change here.
+      - name: Publish to the VS Code Marketplace
+        if: ${{ !inputs.dry_run }}
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
         run: |
-          if [ -z "$OVSX_PAT" ]; then
-            echo "::notice::OVSX_PAT is not set, skipping Open VSX"
+          if [ -z "$VSCE_PAT" ]; then
+            echo "::notice::VSCE_PAT is not set, skipping the VS Code Marketplace"
             exit 0
           fi
-          npx ovsx publish bashle.vsix -p "$OVSX_PAT"
+          npx vsce publish --no-dependencies --packagePath bashle.vsix
 
       # Pushed last: a failed push is re-runnable, a published version is not.
       - name: Push the version commit and tag
@@ -126,4 +127,4 @@ jobs:
         run: |
           gh release create "v$VERSION" bashle.vsix \
             --title "v$VERSION" \
-            --notes "Published to the VS Code Marketplace. See CHANGELOG.md for what changed."
+            --notes "Published to Open VSX. See CHANGELOG.md for what changed."
