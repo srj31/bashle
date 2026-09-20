@@ -212,6 +212,14 @@ inside subshells and process substitution, `trap` handlers you install yourself 
 
 The trace model already records subshell level and nesting depth, so widening coverage is additive.
 
+**Planned — Vim** — a Vim 8.2+ plugin is planned. The core is already editor-agnostic: only
+`src/extension.ts`, `src/decorations.ts` and `src/panel.ts` import `vscode`, and `src/cli.ts`
+already runs probes headlessly. The plugin will drive that CLI in a machine-readable mode over
+`job_start`, then render annotations as `prop_add` virtual text, per-line drill-down in a
+`popup_create` window, and the panel in a split scratch buffer. Neovim is not covered by that plan —
+it implements neither text properties nor `popup_create` — but the display layer will be isolated so
+a Neovim backend can be added without reworking the rest.
+
 ## Settings
 
 | Setting | Default | |
