@@ -15,17 +15,12 @@
 
 ---
 
-## The problem
 
-A bash script's bugs are almost never logic bugs. They're **expansion bugs**: an empty variable, an
-unquoted word that split into three, a glob that matched nothing. `shellcheck` catches some of them
-statically. A test tells you *that* something failed. Neither shows you the thing you actually need:
+A bash script's bugs are almost never logic bugs. They're **expansion bugs**: an empty variable,
+an unquoted word that split into three, a glob that matched nothing. `shellcheck` catches some
+statically. A test tells you *that* something failed. Neither shows you what bash actually ran.
 
-```bash
-cp "$f" "$dest/$(date +%F)/"
-```
-
-What did bash *run*? With bashle, the answer is on the line, the moment you save:
+Bashle does, on the line, the moment you save:
 
 ```bash
 dest=                              dest=''
@@ -34,40 +29,25 @@ for f in $files; do                ×3  f='my report.txt'
 done
 ```
 
-`$dest` was empty, and you can see it in the command that ran. No test run, no guessing.
-
-## Requirements
-
-| | |
-|---|---|
-| **bash ≥ 4.1** | For `BASH_XTRACEFD`. Every current Linux distribution ships 5.x. macOS ships bash **3.2**, which will not work — `brew install bash` and bashle finds it automatically. |
-| **macOS or Linux** | Kernel containment is `sandbox-exec` on macOS and [bubblewrap](https://github.com/containers/bubblewrap) on Linux — `apt install bubblewrap`, `dnf install bubblewrap`, `pacman -S bubblewrap`. Without it bashle still runs, and says on every run that only the clone is containing it. |
-| **VS Code ≥ 1.85** | |
+It runs the script for real, in a throwaway copy-on-write clone of your workspace, with the
+network denied and writes outside the clone blocked by the kernel.
 
 ## Install
 
-Not on the Marketplace yet, so build the `.vsix` and install it:
+**Requires** bash ≥ 4.1 (macOS ships 3.2 — `brew install bash` and bashle finds it), macOS or
+Linux, and on Linux `bubblewrap` for kernel containment (`apt install bubblewrap`).
 
 ```bash
 git clone https://github.com/srj31/bashle && cd bashle
-npm install
-npm run package
-code --install-extension bashle-0.1.0.vsix     # or: cursor --install-extension ...
+npm install && npm run package
+code --install-extension bashle-0.1.0.vsix     # VS Code ≥ 1.85, or cursor --install-extension
 ```
 
-On Linux, install bubblewrap too — it is what enforces containment there:
-
-```bash
-sudo apt install bubblewrap        # or dnf / pacman / zypper
-```
-
-Reload the window. Bashle activates on any file VS Code recognises as `shellscript`.
+For Vim, see [Vim](#vim) below.
 
 ## Quick start
 
-1. Open a `.sh` file.
-2. Add a probe comment saying how to run it.
-3. Save.
+Add a comment saying how the script should run, then save.
 
 ```bash
 # @probe staging --dry-run
@@ -78,24 +58,23 @@ mkdir -p "releases/$target"
 echo "deploying to $target" > "releases/$target/log.txt"
 ```
 
-On save you get expansions and exit codes inline, and a **Files** panel showing that the run created
-`releases/staging/` and `releases/staging/log.txt` — in a throwaway clone, not in your repo.
+You get expansions and exit codes inline, and a **Files** panel showing the run created
+`releases/staging/log.txt` — in the clone, not your repo.
 
 ## Probes
 
-A probe is a comment. One rule: `# @probe <shell words>`, interpreted against whatever it is attached to.
+`# @probe <shell words>`, interpreted against whatever it is attached to.
 
 ```bash
-# @probe staging --dry-run          ← attached to the file: the script's "$@"
+# @probe staging --dry-run          ← the script's "$@"
 # @probe prod => exit 1             ← with an expected exit code
 
-# @probe "a//b" => "a/b"            ← attached to a function: the function's args
-normalize_path() {
-  echo "${1//\/\//\/}"
-}
+# @probe "a//b" => "a/b"            ← attached to a function: its args
+normalize_path() { echo "${1//\/\//\/}"; }
 ```
 
-**Modifiers** apply to every probe in the same comment block:
+Expectations are optional: `=> exit N` checks the status, `=> "text"` checks stdout. Modifiers
+apply to every probe in the same comment block:
 
 ```bash
 # @env DEPLOY_ENV=staging
@@ -103,28 +82,14 @@ normalize_path() {
 # @probe --interactive
 ```
 
-**Expectations** are optional. `=> exit N` checks the exit code; `=> "text"` checks stdout with the
-trailing newline ignored. Without one you just get the observed values, no verdict.
-
-Several probes can share a target — each runs in its own clean clone:
-
-```bash
-# @probe 2 3 => "5"
-# @probe -1 1 => "0"
-add() { echo $(( $1 + $2 )); }
-```
-
-> **Function probes source your script.** If it has no `[[ "${BASH_SOURCE[0]}" == "$0" ]]` guard
-> around its main body, that body runs first. Bashle detects this and says so rather than letting you
-> wonder where the extra output came from.
+> **Function probes source your script.** Without a `[[ "${BASH_SOURCE[0]}" == "$0" ]]` guard,
+> its top-level body runs first. Bashle says so rather than letting you wonder.
 
 ## Holes
 
-A script's external inputs — a network response, a daemon, a file that isn't there — are not
-failures. They are **unknowns**, and bashle runs *past* them rather than stopping.
-
-An unfilled hole answers with `◇n` and the script keeps going, so you see how far the unknown
-reaches before you know anything:
+External inputs — a network response, a daemon, a file that isn't there — are not failures.
+They're **unknowns**, and bashle runs *past* them so you can see how far one reaches before you
+know anything:
 
 ```bash
 version=$(curl -s "$api/latest")   version='◇1'
@@ -132,172 +97,71 @@ dest="releases/$version"           dest='releases/◇1'
 mkdir -p "$dest"                   mkdir -p releases/◇1
 ```
 
-```
-holes (1 open)
-  ◇1 GET https://api.example.com/latest   line 5
-      wants stdout · reaches version, dest · 1 file(s)
-      fill: # @net GET https://api.example.com/latest => ""
-```
-
-The run finished under `set -euo pipefail`, and the Files tab shows it created
+That run finished under `set -euo pipefail`, and the Files tab shows it created
 `releases/◇1/notes.txt` — a file whose name nobody knows yet.
 
-**Fill one** by naming what was requested. Fills are comment-block modifiers like `@env`:
+**Fill one** by naming what was requested:
 
 ```bash
 # @net   GET https://api.example.com/latest => "1.4.2"
 # @net   GET https://api.example.com/health => exit 22
-# @net   GET https://api.example.com/manifest => @fixtures/manifest.json
 # @cmd   docker ps => "no containers"
-# @file  etc/deploy.conf => <<'EOF'
-#   target=staging
-# EOF
+# @file  etc/deploy.conf => @fixtures/deploy.conf
 # @clock 2026-01-15T09:30:00Z
 # @probe staging
 ```
 
-`=> "text"` sets stdout, `=> exit N` sets the status, `=> @path` reads a fixture from your repo,
-and a heredoc carries anything multi-line. A request with no fill is simply a hole — there is no
+`=> "text"` sets stdout, `=> exit N` the status, `=> @path` reads a fixture, and a `<<'EOF'`
+heredoc carries anything multi-line. A request with no fill is simply a hole — there is no
 "mock not found" error anywhere in this.
 
-**What becomes a hole.** Network calls; commands that escape the sandbox (`docker`, `systemctl`,
-`ssh`, `aws`, `kubectl`); and `cat` and its siblings reading a file that is not in the clone. A
-file that *is* in the clone stays real. `date`, `hostname`, `whoami` and `uuidgen` are *pre-filled*
-with fixed values so two runs agree, and are listed but not counted as unknowns.
+Network calls, sandbox-escaping commands (`docker`, `systemctl`, `ssh`, `aws`, `kubectl`) and
+reads of files absent from the clone become holes. A file that *is* in the clone stays real.
+`date`, `hostname`, `whoami` and `uuidgen` are pre-filled with fixed values so two runs agree.
 
-**A hole is never offered as a way to hide a bug.** If the line reached an empty variable, the
-hole is marked `◇!n` and leads with the cause instead of the fill — because `cat "$dest/x"` with
-an empty `$dest` is an expansion bug, not a missing input. The warning stays even if you fill it.
+**A hole is never a way to hide a bug.** If the line reached an empty variable it is marked
+`◇!n` and leads with the cause instead of the fill — `cat "$dest/x"` with an empty `$dest` is an
+expansion bug, not a missing input. The warning stays even if you fill it.
 
-> **Known gaps.** `source f` and `read < f` are builtins, so a missing file read that way is not
-> discovered (a `@file` fill still works — it writes a real file before the run). An unquoted
-> `$hole` that word-splits is treated as one word. And bashle does not yet record that a branch
-> was decided by an unfilled hole, so a run that took one may not represent every fill.
-
-## What you get
-
-**Inline** — the expanded command, an `✗N` badge on a nonzero exit, `×N` when a line ran more than
-once, the values of variables that line mentions, and `◇n` for any unknown flowing through it.
-
-**On hover** — every execution of that line, numbered, with its own expansion, exit code and variables.
-
-**In the panel** — four tabs:
-
-- **Files** *(default)* — what the run created, modified and deleted, with diffs. For a file-manipulation
-  script this is the real output.
-- **Holes** — every unknown the run reached, what it wants, what it reached, and the directive that
-  would fill it.
-- **Trace** — every executed line in order: line number, iteration, the command as bash ran it, exit code, variables.
-- **Output** — the script's own stdout and stderr, kept separate from the trace.
+> **Gaps.** `source f` and `read < f` are builtins, so a missing file read that way isn't
+> discovered (a `@file` fill still works). An unquoted `$hole` that word-splits is treated as one
+> word. A branch decided by an unfilled hole isn't recorded, so such a run may not represent
+> every fill.
 
 ## Containment
 
-Probe runs execute real commands. Bashle contains them in three layers, and tells you which ones are active.
+Probe runs execute real commands, contained in three layers — and bashle always tells you which
+are active (`⛨` for kernel enforcement, `⚠` for clone-only).
 
-1. **Scratch clone.** Your workspace is cloned copy-on-write — `cp -c` (APFS clonefile) on macOS,
-   `cp --reflink=auto` (btrfs, xfs) on Linux — so it is instant and consumes no disk until something
-   writes; on a filesystem without copy-on-write it falls back to a plain copy. The script runs with
-   its cwd there, so relative paths hit the clone, and they hit files that genuinely exist.
-2. **Redirected environment.** `HOME` and `TMPDIR` point inside the clone, so `~/.config/...` and
-   `mktemp` are contained too.
-3. **Kernel enforcement.** All writes outside the clone are denied, the network is denied outright,
-   and `sudo` cannot be executed. A blocked write fails visibly instead of silently succeeding.
-   On macOS this is a `sandbox-exec` profile; on Linux it is bubblewrap, which binds the whole
-   filesystem read-only, rebinds only the clone writable, and puts the run in its own network and
-   PID namespaces.
+1. **Scratch clone.** Copy-on-write, so it is instant and costs no disk until something writes.
+2. **Redirected environment.** `HOME` and `TMPDIR` point inside the clone.
+3. **Kernel enforcement.** `sandbox-exec` on macOS, bubblewrap on Linux. Writes outside the
+   clone denied, network denied, `sudo` blocked.
 
-Afterwards the clone is diffed against your pristine workspace to produce the Files tab, then deleted.
+**What it does not protect you from:** a command doing its work in another process — `docker`,
+`systemctl`, anything driving a daemon — is not stopped by a file sandbox. Bashle shims the
+common ones into holes so they don't run at all, but treat probes on such scripts with the care
+you'd treat running them.
 
-**What this does not protect you from.** A command that does its work in another process — `docker`,
-`launchctl`, `systemctl`, anything talking to a system daemon — is not stopped by a file sandbox.
-Treat probes on scripts like those with the same care you'd treat running them.
+## Commands
 
-**If the sandbox is unavailable**, bashle does not refuse to run and does not pretend. The status bar
-shows `⛨` when kernel enforcement is on and `⚠` when only layers 1–2 are, so you are never guessing
-about which you have, and every degraded run carries a warning naming what is missing — bubblewrap not
-installed, unprivileged user namespaces disabled, or a kernel that refused a network namespace (some
-container runtimes do, and the run is then contained on disk but can still reach the network).
+| macOS | Linux | |
+|---|---|---|
+| `⌘⌥R` | `Ctrl+Alt+R` | Run probes in this file |
+| `⌘⌥I` | `Ctrl+Alt+I` | Inspect this line |
 
-## Using it in a real repository
+Settings: `bashle.runOnSave`, `bashle.timeoutMs`, `bashle.enforceSandbox`, `bashle.bashPath`,
+`bashle.maxRecords`, `bashle.maxCloneBytes`, `bashle.watchAllVariables`. Per-repo config goes in
+`.vscode/settings.json`; see [using bashle in a real repository](docs/using-in-a-repository.md).
 
-**Probes live in your scripts.** They're comments, so they commit with the code and travel with the
-repo. A teammate without bashle installed just sees a comment saying how the script is meant to be run
-— which is documentation you probably wanted anyway.
+## Vim
 
-**The working directory is the workspace root**, not the script's directory. A script at
-`scripts/build.sh` that reads `data.txt` gets the `data.txt` at your repo root. If your script expects
-to run from its own directory, anchor it the usual way:
-
-```bash
-cd "$(dirname "$0")"
-```
-
-Paths in the **Files** tab are relative to the workspace root too, so they read the same as `git status`.
-
-**Per-repo settings** go in `.vscode/settings.json` and commit with the repo:
-
-```json
-{
-  "bashle.runOnSave": false,
-  "bashle.timeoutMs": 15000,
-  "bashle.maxCloneBytes": 2147483648
-}
-```
-
-`runOnSave: false` is worth considering for a repo whose scripts are slow or heavy — you then drive it
-with `⌘⌥R` / `Ctrl+Alt+R` when you actually want a run.
-
-**On a large repo**, the clone itself is instant on a copy-on-write filesystem (no disk used until
-something writes), but bashle measures what it is about to copy and refuses above `maxCloneBytes`
-(512 MB by default). `.git` and `node_modules` are not copied at all, so they count against neither the
-limit nor the diff. To skip more, put a `.bashleignore` beside your scripts:
-
-```gitignore
-# Same syntax as .gitignore, including negation.
-vendor/
-*.tar.gz
-fixtures/**/*.bin
-
-# The two built-in defaults can be won back if a script really needs them:
-# !node_modules
-```
-
-Only the `.bashleignore` at the workspace root is read; `.gitignore` is deliberately *not* consulted, so
-build output a script under test reads — `dist/`, `.env` — still reaches the sandbox.
-
-**Before you probe a script with real side effects**, know exactly what the sandbox covers. Writes
-outside the clone, network access and `sudo` are blocked by the kernel. Commands that do their work in
-*another* process — `docker`, `launchctl`, anything driving a system daemon — are not, because the file
-sandbox only constrains the process it wrapped. For scripts like those, keep `runOnSave` off and read
-the trace before you trust it.
-
-## Supported today
-
-Bashle is being built out iteratively, starting with the constructs that carry most scripts:
-
-**Working now** — assignments, simple commands, `for` / `while` / `until`, `if` / `case`,
-functions, variable expansion and word splitting, redirections, exit codes, file manipulation.
-
-**Not yet** — per-stage attribution inside pipelines (a pipeline is reported as one line), values
-inside subshells and process substitution, `trap` handlers you install yourself (bashle's own
-`DEBUG` and `EXIT` traps will be replaced by them), and scripts that re-enter bash as a child process.
-
-The trace model already records subshell level and nesting depth, so widening coverage is additive.
-
-**Vim** — shipped. See *Using it from Vim* below. Neovim is not covered: it implements
-neither Vim's text properties nor `popup_create`, though it has equivalents, and the display
-layer is isolated enough that a Neovim backend can be added without reworking the rest.
-
-## Using it from Vim
-
-Requires **Vim 9.0+** for virtual text (`prop_add` with `text`). On Vim 8.2 the plugin still
-runs — you get the panel and the popup — but annotations cannot appear at end of line.
+Requires **Vim 9.0+** for virtual text. On 8.2 the panel and popup still work, without
+end-of-line annotations.
 
 ```vim
 Plug 'srj31/bashle'
 ```
-
-Then build the CLI the plugin drives, once:
 
 ```bash
 cd ~/.vim/plugged/bashle && npm install && npm run build:cli
@@ -308,114 +172,18 @@ cd ~/.vim/plugged/bashle && npm install && npm run build:cli
 | `:BashleRun` · `<Leader>br` | Run probes for this file |
 | `:BashleInspect` · `<Leader>bi` | Popup for the line under the cursor |
 | `:BashlePanel` · `<Leader>bp` | Holes, files and output in a split |
-| `:BashleClear` | Remove annotations |
 
-```vim
-let g:bashle_run_on_save = 0          " drive it with :BashleRun only
-let g:bashle_node = '/usr/local/bin/node'
-let g:bashle_cli = '~/src/bashle/dist/cli.js'
-```
+Configure with `g:bashle_run_on_save`, `g:bashle_node`, `g:bashle_cli`; highlighting follows
+`BashleOk` and `BashleFailed`. The plugin is only a front end — `node dist/cli.js --json <script>`
+emits the whole report already rendered, so any editor can drive the same engine.
 
-Highlighting follows `BashleOk` and `BashleFailed`, linked to `Comment` and `WarningMsg` by
-default.
+## More
 
-The plugin is a front end and nothing more: `node dist/cli.js --json <script>` emits the whole
-report — annotation text, hover text, holes, files — already rendered, so any editor can drive
-the same engine without re-deriving presentation from the trace.
-
-## Settings
-
-| Setting | Default | |
-|---|---|---|
-| `bashle.bashPath` | *(auto)* | Path to a bash ≥ 4.1. Auto-discovers Homebrew on macOS, `/usr/bin/bash` on Linux, then `PATH`. |
-| `bashle.runOnSave` | `true` | Run probes on save. Turn off to drive it with `⌘⌥R` / `Ctrl+Alt+R` only. |
-| `bashle.timeoutMs` | `5000` | Kill a probe run after this long. The partial trace is kept. |
-| `bashle.enforceSandbox` | `true` | Kernel enforcement — `sandbox-exec` on macOS, bubblewrap on Linux. Turning it off leaves only the clone containing the run. |
-| `bashle.maxRecords` | `50000` | Stop tracing after this many events and mark the trace truncated. |
-| `bashle.maxCloneBytes` | `512 MB` | Refuse to clone a workspace larger than this, counting only what `.bashleignore` keeps. |
-| `bashle.watchAllVariables` | `false` | Snapshot every variable instead of only those the script names. Slower. |
-
-## Commands
-
-| macOS | Linux | |
-|---|---|---|
-| `⌘⌥R` | `Ctrl+Alt+R` | Run probes in this file |
-| `⌘⌥I` | `Ctrl+Alt+I` | Inspect this line (opens the Trace tab) |
-| — | — | Bashle: Show panel · Bashle: Clear annotations |
-
-## How it works
-
-No source rewriting — your file is never modified. The tracer is injected through `BASH_ENV`, which
-bash sources before a non-interactive script:
-
-- `PS4` is set to emit a structured record with `BASH_SOURCE`, `LINENO` and `BASH_SUBSHELL`, and
-  `set -x` writes it to **file descriptor 9** via `BASH_XTRACEFD` — so the trace never collides with
-  your script's own stdout or stderr.
-- A `DEBUG` trap with `set -T` records the unexpanded command, the previous command's exit status,
-  and a `declare -p` snapshot of the variables your script actually names.
-- Records are `\x1f`-delimited fields in `\x1e`-delimited records, which bash emits with a single
-  `printf` and no quoting hazards.
-
-Pairing those two streams is less obvious than it sounds — `for` loops emit their xtrace line
-*before* the `DEBUG` trap fires, so the parser matches in either order and attributes each exit code
-to the command that actually preceded it.
-
-## Running it locally
-
-```bash
-npm install
-```
-
-### In the terminal, without VS Code
-
-The fastest loop. `npm run probe` runs every probe in a file through the real engine — same tracer,
-same sandbox — and prints the annotations inline.
-
-```bash
-npm run probe -- examples/deploy.sh
-```
-
-```
- 15   mkdir -p "$dest"                    mkdir -p releases/staging  dest=releases/staging
- 17   for artifact in app.js styles.css readme md; do   ×4  ✗1  artifact=readme
- 18     cp "artifacts/$artifact" "$dest/"  ×4  cp artifacts/md releases/staging/  ✗1  artifact=md
-
- files changed in the sandbox
-   + releases/staging/app.js
-   + releases/staging/status.txt
-   + releases/staging/styles.css
- exit 0 · ⛨ sandboxed
-```
-
-`examples/deploy.sh` has a deliberate bug: `readme md` is unquoted, so it splits into two words and
-the loop runs **four** times instead of three. You can see it in the iteration count, in the failing
-`cp artifacts/md`, and in the Files list where `readme md` was never copied — and your real
-`examples/` directory is untouched.
-
-### In VS Code
-
-1. Open this folder in VS Code.
-2. Press **F5** (*Run Bashle in a new VS Code window*). It builds first, then opens a second window
-   with the extension loaded and `examples/` as its workspace.
-3. Open `examples/deploy.sh` in that window and hit **⌘S** / **Ctrl+S**.
-
-Annotations appear at end of line, hover a line for every execution of it, and `⌘⌥I` / `Ctrl+Alt+I`
-opens the panel. Edit and save again to watch it update. Extension logs go to the *Debug Console* of
-the first window; reload the second window after changing extension code.
-
-### Tests
-
-```bash
-npm test              # 156 tests, including end-to-end runs against real bash and a real sandbox
-npm run test:coverage # the same run, plus coverage/ (open coverage/lcov-report/index.html)
-npm run build         # bundle to dist/extension.js
-npm run typecheck
-```
-
-The containment tests are adversarial on purpose: scripts that try to write to `/tmp`, to an absolute
-path back inside the real workspace, to delete real files, and to open a socket must each be blocked
-*and* reported. They run against whichever sandbox the host has, so the suite is the check that the
-port holds on both platforms.
+- [Using bashle in a real repository](docs/using-in-a-repository.md) — `.bashleignore`, large
+  repos, per-repo settings, working directory
+- [How it works](docs/internals.md) — the tracer, the record format, what's covered
+- [Contributing](CONTRIBUTING.md) — running it locally, the test suite
+- [Reading for the holes semantics](readings/semantics.md)
 
 ## License
 

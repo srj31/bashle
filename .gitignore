@@ -5,3 +5,6 @@ dist/
 .DS_Store
 *.vsix
 coverage/
+
+# Scaffolding from the superpowers plugin; not part of this repo.
+docs/superpowers/

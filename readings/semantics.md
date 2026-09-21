@@ -1,7 +1,7 @@
 # Reading for the holes semantics
 
-Background for [`docs/superpowers/specs/2026-09-21-holes-semantics.md`](../docs/superpowers/specs/2026-09-21-holes-semantics.md).
-Enough to write and critique that document — not a PL curriculum.
+Background for giving bashle's holes a formal semantics. Enough to write and critique one —
+not a PL curriculum.
 
 The ordering reflects one correction that reshaped the plan: **bashle's holes sit at the
 I/O boundary, not inside the term.** The program is complete; only the environment's
@@ -13,8 +13,8 @@ shell-semantics literature matters more than it first appeared.
 
 **1 · Small-step operational semantics.**
 Pierce, *Types and Programming Languages* — **chapter 3** (~20 pages). A tiny language,
-judgments, reduction rules, induction over derivations. It is the exact template for how
-the spec is written. Add **chapter 8** for progress and preservation: we have no types,
+judgments, reduction rules, induction over derivations. It is the template to follow for
+writing rules. Add **chapter 8** for progress and preservation: we have no types,
 but the totality theorem (T1) is progress-shaped, so the proof technique is the one to
 copy. Harper's *Practical Foundations for Programming Languages* ch. 1–5 covers the same
 ground more austerely if you prefer it.
@@ -31,16 +31,15 @@ including why an unquoted hole has unknown *arity* and not merely unknown conten
 Greenberg & Blatt, *Executable formal semantics for the POSIX shell*, OOPSLA 2020. An
 executable, mechanized POSIX shell semantics tested against the conformance suite.
 
-Read this before accepting the hand-written fragment in the spec. If Smoosh can be
-extended, the work becomes "add one rule to an existing shell semantics" rather than
-"invent a rival one" — far less to get wrong and a much stronger thing to cite. The spec
-says as much in *What is modelled*; this is the item that decides it.
+Read this before writing a shell fragment by hand. If Smoosh can be extended, the work
+becomes "add one rule to an existing shell semantics" rather than "invent a rival one" —
+far less to get wrong and a much stronger thing to cite.
 
 **4 · Symbolic execution.**
 Cadar, Dunbar & Engler, *KLEE*, OSDI 2008. Read properly rather than skim, for one idea:
 a run is valid only for inputs satisfying the **path condition** its branches imposed.
 
-That concept is the spec's largest gap. bashle takes whichever branch bash happened to
+That is the largest gap in the tool today: bashle takes whichever branch bash happened to
 take with a sentinel in place and records nothing about it.
 
 ## Hazel, demoted but not dropped
@@ -102,15 +101,15 @@ cp $files "$dest"      # files is an unfilled hole
 ```
 
 Unquoted, it splits into an unknown *number* of words: the command's argv length is
-indeterminate. The value domain `ŝ` cannot express that, and no sentinel scan will find
-it. This is O1 in the spec, and the implementation silently treats it as one word.
+indeterminate. A value domain of "string with hole markers" cannot express that, and no
+sentinel scan will find it. The implementation silently treats it as one word.
 
 **A command yields two results, not one.** A value *and* an exit status, each
 independently indeterminate. Most calculi you will read have a single notion of result.
 
 **The filesystem is a mutable store with path aliasing.** Once a path *name* is symbolic,
 `[[ -f releases/x ]]` for a determinate `x` is unanswerable, because the unknown might
-equal it. The store itself goes indeterminate. This is O3, and the deepest unmodelled part.
+equal it. The store itself goes indeterminate — the deepest unmodelled part.
 
 **`set -e`, `$?`, subshells and traps make bash non-compositional.** Read the bash manual
 on `set -e` specifically — its real behaviour is a list of exceptions.
@@ -127,5 +126,5 @@ if curl -f "$u"; then a=1; else a=2; fi       # a depends on the hole, contains 
 (( x > 3 ))                                   # no answer in the current model
 ```
 
-The last three are O1, the path-condition gap, and O2 — precisely where the spec is still
-guessing.
+The last three are unknown arity, the missing path condition, and the absence of a symbolic
+exit status — precisely where the tool is still guessing.
