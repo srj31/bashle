@@ -1,6 +1,6 @@
 # Reading for the holes semantics
 
-Background for giving bashle's holes a formal semantics. Enough to write and critique one —
+Background for [the v0 semantics](../docs/semantics.md). Enough to write and critique it —
 not a PL curriculum.
 
 The ordering reflects one correction that reshaped the plan: **bashle's holes sit at the

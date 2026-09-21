@@ -126,7 +126,7 @@ expansion bug, not a missing input. The warning stays even if you fill it.
 > **Gaps.** `source f` and `read < f` are builtins, so a missing file read that way isn't
 > discovered (a `@file` fill still works). An unquoted `$hole` that word-splits is treated as one
 > word. A branch decided by an unfilled hole isn't recorded, so such a run may not represent
-> every fill.
+> every fill. All three are named in [the semantics](docs/semantics.md).
 
 ## Containment
 
@@ -183,7 +183,8 @@ emits the whole report already rendered, so any editor can drive the same engine
   repos, per-repo settings, working directory
 - [How it works](docs/internals.md) — the tracer, the record format, what's covered
 - [Contributing](CONTRIBUTING.md) — running it locally, the test suite
-- [Reading for the holes semantics](readings/semantics.md)
+- [A semantics for holes](docs/semantics.md) — what a hole means, stated as rules, with the
+  gaps named · [reading](readings/semantics.md)
 
 ## License
 
