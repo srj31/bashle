@@ -118,17 +118,75 @@ add() { echo $(( $1 + $2 )); }
 > around its main body, that body runs first. Bashle detects this and says so rather than letting you
 > wonder where the extra output came from.
 
+## Holes
+
+A script's external inputs — a network response, a daemon, a file that isn't there — are not
+failures. They are **unknowns**, and bashle runs *past* them rather than stopping.
+
+An unfilled hole answers with `◇n` and the script keeps going, so you see how far the unknown
+reaches before you know anything:
+
+```bash
+version=$(curl -s "$api/latest")   version='◇1'
+dest="releases/$version"           dest='releases/◇1'
+mkdir -p "$dest"                   mkdir -p releases/◇1
+```
+
+```
+holes (1 open)
+  ◇1 GET https://api.example.com/latest   line 5
+      wants stdout · reaches version, dest · 1 file(s)
+      fill: # @net GET https://api.example.com/latest => ""
+```
+
+The run finished under `set -euo pipefail`, and the Files tab shows it created
+`releases/◇1/notes.txt` — a file whose name nobody knows yet.
+
+**Fill one** by naming what was requested. Fills are comment-block modifiers like `@env`:
+
+```bash
+# @net   GET https://api.example.com/latest => "1.4.2"
+# @net   GET https://api.example.com/health => exit 22
+# @net   GET https://api.example.com/manifest => @fixtures/manifest.json
+# @cmd   docker ps => "no containers"
+# @file  etc/deploy.conf => <<'EOF'
+#   target=staging
+# EOF
+# @clock 2026-01-15T09:30:00Z
+# @probe staging
+```
+
+`=> "text"` sets stdout, `=> exit N` sets the status, `=> @path` reads a fixture from your repo,
+and a heredoc carries anything multi-line. A request with no fill is simply a hole — there is no
+"mock not found" error anywhere in this.
+
+**What becomes a hole.** Network calls; commands that escape the sandbox (`docker`, `systemctl`,
+`ssh`, `aws`, `kubectl`); and `cat` and its siblings reading a file that is not in the clone. A
+file that *is* in the clone stays real. `date`, `hostname`, `whoami` and `uuidgen` are *pre-filled*
+with fixed values so two runs agree, and are listed but not counted as unknowns.
+
+**A hole is never offered as a way to hide a bug.** If the line reached an empty variable, the
+hole is marked `◇!n` and leads with the cause instead of the fill — because `cat "$dest/x"` with
+an empty `$dest` is an expansion bug, not a missing input. The warning stays even if you fill it.
+
+> **Known gaps.** `source f` and `read < f` are builtins, so a missing file read that way is not
+> discovered (a `@file` fill still works — it writes a real file before the run). An unquoted
+> `$hole` that word-splits is treated as one word. And bashle does not yet record that a branch
+> was decided by an unfilled hole, so a run that took one may not represent every fill.
+
 ## What you get
 
 **Inline** — the expanded command, an `✗N` badge on a nonzero exit, `×N` when a line ran more than
-once, and the values of variables that line mentions.
+once, the values of variables that line mentions, and `◇n` for any unknown flowing through it.
 
 **On hover** — every execution of that line, numbered, with its own expansion, exit code and variables.
 
-**In the panel** — three tabs:
+**In the panel** — four tabs:
 
 - **Files** *(default)* — what the run created, modified and deleted, with diffs. For a file-manipulation
   script this is the real output.
+- **Holes** — every unknown the run reached, what it wants, what it reached, and the directive that
+  would fill it.
 - **Trace** — every executed line in order: line number, iteration, the command as bash ran it, exit code, variables.
 - **Output** — the script's own stdout and stderr, kept separate from the trace.
 
@@ -226,13 +284,44 @@ inside subshells and process substitution, `trap` handlers you install yourself 
 
 The trace model already records subshell level and nesting depth, so widening coverage is additive.
 
-**Planned — Vim** — a Vim 8.2+ plugin is planned. The core is already editor-agnostic: only
-`src/extension.ts`, `src/decorations.ts` and `src/panel.ts` import `vscode`, and `src/cli.ts`
-already runs probes headlessly. The plugin will drive that CLI in a machine-readable mode over
-`job_start`, then render annotations as `prop_add` virtual text, per-line drill-down in a
-`popup_create` window, and the panel in a split scratch buffer. Neovim is not covered by that plan —
-it implements neither text properties nor `popup_create` — but the display layer will be isolated so
-a Neovim backend can be added without reworking the rest.
+**Vim** — shipped. See *Using it from Vim* below. Neovim is not covered: it implements
+neither Vim's text properties nor `popup_create`, though it has equivalents, and the display
+layer is isolated enough that a Neovim backend can be added without reworking the rest.
+
+## Using it from Vim
+
+Requires **Vim 9.0+** for virtual text (`prop_add` with `text`). On Vim 8.2 the plugin still
+runs — you get the panel and the popup — but annotations cannot appear at end of line.
+
+```vim
+Plug 'srj31/bashle'
+```
+
+Then build the CLI the plugin drives, once:
+
+```bash
+cd ~/.vim/plugged/bashle && npm install && npm run build:cli
+```
+
+| | |
+|---|---|
+| `:BashleRun` · `<Leader>br` | Run probes for this file |
+| `:BashleInspect` · `<Leader>bi` | Popup for the line under the cursor |
+| `:BashlePanel` · `<Leader>bp` | Holes, files and output in a split |
+| `:BashleClear` | Remove annotations |
+
+```vim
+let g:bashle_run_on_save = 0          " drive it with :BashleRun only
+let g:bashle_node = '/usr/local/bin/node'
+let g:bashle_cli = '~/src/bashle/dist/cli.js'
+```
+
+Highlighting follows `BashleOk` and `BashleFailed`, linked to `Comment` and `WarningMsg` by
+default.
+
+The plugin is a front end and nothing more: `node dist/cli.js --json <script>` emits the whole
+report — annotation text, hover text, holes, files — already rendered, so any editor can drive
+the same engine without re-deriving presentation from the trace.
 
 ## Settings
 

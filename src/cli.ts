@@ -5,6 +5,7 @@ import { discoverBash } from './bashDiscovery';
 import { runProbe } from './runner';
 import { formatInlineAnnotation, groupExecutionsByLine } from './annotations';
 import { holeLabel, renderHoleSentinels } from './holes';
+import { buildReport } from './report';
 import type { Hole, RunResult } from './types';
 
 const DIM = '\x1b[2m';
@@ -123,9 +124,11 @@ function printResult(source: string, result: RunResult): void {
 }
 
 async function main(): Promise<number> {
-  const scriptArgument = process.argv[2];
+  const args = process.argv.slice(2);
+  const asJson = args.includes('--json');
+  const scriptArgument = args.find((argument) => !argument.startsWith('-'));
   if (!scriptArgument) {
-    console.error('usage: npm run probe -- <script.sh>');
+    console.error('usage: npm run probe -- [--json] <script.sh>');
     return 2;
   }
 
@@ -133,17 +136,21 @@ async function main(): Promise<number> {
   const source = await readFile(scriptPath, 'utf8');
   const parsed = parseProbes(source);
 
-  for (const error of parsed.errors) {
-    console.error(`${RED}line ${error.lineIndex + 1}: ${error.message}${RESET}`);
+  if (!asJson) {
+    for (const error of parsed.errors) {
+      console.error(`${RED}line ${error.lineIndex + 1}: ${error.message}${RESET}`);
+    }
   }
-  if (parsed.probes.length === 0) {
+  if (parsed.probes.length === 0 && !asJson) {
     console.error(`No ${BOLD}# @probe${RESET} comments found in ${scriptPath}.`);
     return 1;
   }
 
   const bash = await discoverBash();
-  console.log(`${DIM}using ${bash.path} (${bash.version})${RESET}`);
+  // Anything but the report itself would corrupt stdout for a machine reader.
+  if (!asJson) console.log(`${DIM}using ${bash.path} (${bash.version})${RESET}`);
 
+  const results: RunResult[] = [];
   let failures = 0;
   for (const probe of parsed.probes) {
     const result = await runProbe({
@@ -160,8 +167,15 @@ async function main(): Promise<number> {
       maxCloneBytes: 2e9,
       enforceSandbox: true,
     });
-    printResult(source, result);
+    results.push(result);
+    if (!asJson) printResult(source, result);
     if (result.verdict.kind === 'fail') failures++;
+  }
+
+  if (asJson) {
+    process.stdout.write(
+      `${JSON.stringify(buildReport({ scriptPath, source, results, errors: parsed.errors }))}\n`,
+    );
   }
   return failures ? 1 : 0;
 }

@@ -10,3 +10,6 @@ vitest.config.ts
 .gitignore
 dist/cli.js
 examples/**
+plugin/**
+autoload/**
+docs/**
