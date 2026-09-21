@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { describeUnavailable, discoverContainment, planContainment } from '../src/containment';
 import { buildCommand } from '../src/runner';
 
-const SCRATCH = { scratchRoot: '/tmp/bashle/run1', bookkeepingDirectory: '/tmp/bashle/run1/.bashle' };
+const SCRATCH = { scratchRoot: '/tmp/bashle/run1', sandboxProfilePath: '/ext/resources/sandbox.sb' };
 
 const onDarwin = it.runIf(process.platform === 'darwin');
 const onLinux = it.runIf(process.platform === 'linux');
@@ -12,7 +12,6 @@ describe('planContainment', () => {
     const plan = await planContainment({ enforce: false, ...SCRATCH });
     expect(plan.kind).toBe('none');
     expect(plan.prefix).toEqual([]);
-    expect(plan.profile).toBeUndefined();
     expect(plan.warning).toMatch(/enforcement is off/);
   });
 
@@ -22,12 +21,16 @@ describe('planContainment', () => {
     expect(plan.warning).toMatch(/macOS.*Linux/);
   });
 
-  onDarwin('uses seatbelt on macOS, configured by a profile file in the clone', async () => {
+  onDarwin('uses seatbelt on macOS, pointed at the shipped profile', async () => {
     const plan = await planContainment({ enforce: true, platform: 'darwin', ...SCRATCH });
     expect(plan.kind).toBe('seatbelt');
-    expect(plan.prefix).toEqual(['/usr/bin/sandbox-exec', '-f', '/tmp/bashle/run1/.bashle/profile.sb']);
-    expect(plan.profile?.path).toBe('/tmp/bashle/run1/.bashle/profile.sb');
-    expect(plan.profile?.contents).toContain('(subpath "/tmp/bashle/run1")');
+    expect(plan.prefix).toEqual([
+      '/usr/bin/sandbox-exec',
+      '-D',
+      'SCRATCH_ROOT=/tmp/bashle/run1',
+      '-f',
+      '/ext/resources/sandbox.sb',
+    ]);
     expect(plan.warning).toBeUndefined();
   });
 
@@ -40,7 +43,6 @@ describe('planContainment', () => {
     expect(plan.kind).toBe('bubblewrap');
     expect(plan.prefix[0]).toMatch(/bwrap$/);
     expect(plan.prefix.join(' ')).toContain('--bind /tmp/bashle/run1 /tmp/bashle/run1');
-    expect(plan.profile).toBeUndefined();
     // A kernel that refuses a network namespace still gets the file sandbox, and says so.
     if (plan.warning) expect(plan.warning).toMatch(/network/);
     else expect(plan.prefix).toContain('--unshare-net');

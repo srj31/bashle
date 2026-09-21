@@ -101,6 +101,7 @@ async function main(): Promise<number> {
     const result = await runProbe({
       bashPath: bash.path,
       preludePath: resolve(__dirname, '..', 'resources', 'prelude.sh'),
+      sandboxProfilePath: resolve(__dirname, '..', 'resources', 'sandbox.sb'),
       scriptPath,
       workspaceRoot: dirname(scriptPath),
       probe,

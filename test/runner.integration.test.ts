@@ -9,6 +9,7 @@ import { discoverContainment } from '../src/containment';
 import type { RunResult } from '../src/types';
 
 const PRELUDE = resolve(__dirname, '..', 'resources', 'prelude.sh');
+const SANDBOX_PROFILE = resolve(__dirname, '..', 'resources', 'sandbox.sb');
 
 let bashPath: string;
 let workspace: string;
@@ -35,6 +36,7 @@ async function runScript(
   return runProbe({
     bashPath,
     preludePath: PRELUDE,
+    sandboxProfilePath: SANDBOX_PROFILE,
     scriptPath,
     workspaceRoot: workspace,
     probe: parsed.probes[0]!,
@@ -165,6 +167,13 @@ describe('runProbe containment', () => {
     expect(existsSync(join(workspace, 'out/result.txt'))).toBe(false);
   });
 
+  it('leaves .git out of the scratch clone', async () => {
+    mkdirSync(join(workspace, '.git'));
+    writeFileSync(join(workspace, '.git', 'HEAD'), 'ref: refs/heads/main\n');
+    const result = await runScript(['# @probe', 'ls -a .git || echo "no .git"'].join('\n'));
+    expect(result.stdout).toContain('no .git');
+  });
+
   it('reports a modification without modifying the real file', async () => {
     writeFileSync(join(workspace, 'data.txt'), 'one\ntwo\n');
     // Rewrite via a temporary file: `sed -i` takes a suffix on BSD and not on GNU.
@@ -280,6 +289,7 @@ describe('probes in a repository subdirectory', () => {
     const result = await runProbe({
       bashPath,
       preludePath: PRELUDE,
+      sandboxProfilePath: SANDBOX_PROFILE,
       scriptPath,
       workspaceRoot: workspace,
       probe: parsed.probes[0]!,
@@ -306,6 +316,7 @@ describe('probes in a repository subdirectory', () => {
     const result = await runProbe({
       bashPath,
       preludePath: PRELUDE,
+      sandboxProfilePath: SANDBOX_PROFILE,
       scriptPath,
       workspaceRoot: workspace,
       probe: parsed.probes[0]!,
@@ -330,6 +341,7 @@ describe('probes in a repository subdirectory', () => {
     const result = await runProbe({
       bashPath,
       preludePath: PRELUDE,
+      sandboxProfilePath: SANDBOX_PROFILE,
       scriptPath,
       workspaceRoot: workspace,
       probe: parsed.probes[0]!,

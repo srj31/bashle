@@ -1,13 +1,12 @@
 import { execFile } from 'node:child_process';
 import { access, constants } from 'node:fs/promises';
-import { join } from 'node:path';
 import { promisify } from 'node:util';
 import {
   BUBBLEWRAP_SEARCH_PATH,
   LINUX_FORBIDDEN_EXECUTABLES,
   SANDBOX_EXEC,
   buildBubblewrapArgs,
-  buildSandboxProfile,
+  buildSeatbeltArgs,
 } from './sandbox';
 
 const run = promisify(execFile);
@@ -28,16 +27,18 @@ export type ContainmentUnavailable =
   | { reason: 'not-usable'; path: string }
   | { reason: 'seatbelt-missing' };
 
+export function isUnavailable(
+  found: ContainmentTool | ContainmentUnavailable,
+): found is ContainmentUnavailable {
+  return 'reason' in found;
+}
+
 export interface ContainmentPlan {
   kind: ContainmentKind;
   /** Argv to put in front of the bash invocation. Empty when nothing wraps it. */
   prefix: string[];
-  /** Written to disk before the run; seatbelt is configured by file, bwrap by argv. */
-  profile?: { path: string; contents: string };
   warning?: string;
 }
-
-const PROFILE_FILE_NAME = 'profile.sb';
 
 async function isExecutable(path: string): Promise<boolean> {
   try {
@@ -121,7 +122,7 @@ let cachedDiscovery: Promise<ContainmentTool | ContainmentUnavailable> | null = 
 function discoverOnce(platform: NodeJS.Platform): Promise<ContainmentTool | ContainmentUnavailable> {
   if (platform !== process.platform) return discoverContainment(platform);
   cachedDiscovery ??= discoverContainment(platform).then((found) => {
-    if ('reason' in found) cachedDiscovery = null;
+    if (isUnavailable(found)) cachedDiscovery = null;
     return found;
   });
   return cachedDiscovery;
@@ -155,14 +156,15 @@ export function describeUnavailable(unavailable: ContainmentUnavailable): string
 export interface PlanContainmentOptions {
   enforce: boolean;
   scratchRoot: string;
-  bookkeepingDirectory: string;
+  /** Ignored off macOS; bubblewrap has no profile file. */
+  sandboxProfilePath: string;
   platform?: NodeJS.Platform;
 }
 
 export async function planContainment({
   enforce,
   scratchRoot,
-  bookkeepingDirectory,
+  sandboxProfilePath,
   platform = process.platform,
 }: PlanContainmentOptions): Promise<ContainmentPlan> {
   if (!enforce) {
@@ -170,14 +172,12 @@ export async function planContainment({
   }
 
   const tool = await discoverOnce(platform);
-  if ('reason' in tool) return { kind: 'none', prefix: [], warning: describeUnavailable(tool) };
+  if (isUnavailable(tool)) return { kind: 'none', prefix: [], warning: describeUnavailable(tool) };
 
   if (tool.kind === 'seatbelt') {
-    const profilePath = join(bookkeepingDirectory, PROFILE_FILE_NAME);
     return {
       kind: 'seatbelt',
-      prefix: [tool.path, '-f', profilePath],
-      profile: { path: profilePath, contents: buildSandboxProfile({ writableRoots: [scratchRoot] }) },
+      prefix: [tool.path, ...buildSeatbeltArgs({ profilePath: sandboxProfilePath, scratchRoot })],
     };
   }
 

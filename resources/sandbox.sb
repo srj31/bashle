@@ -1,0 +1,31 @@
+;; Read by sandbox-exec(1) at spawn time. The scratch clone arrives as a -D
+;; parameter rather than being interpolated into this text.
+;;
+;; Deny-by-exception, not allowlist: Bashle runs arbitrary user bash against the
+;; user's own toolchain, so enumerating every permitted operation would break on
+;; scripts we have never seen. Widen the denials rather than inverting this.
+(version 1)
+
+(allow default)
+
+(deny network*)
+
+(deny process-exec
+    (literal "/usr/bin/sudo")
+    (literal "/usr/bin/su")
+    (literal "/usr/bin/chgrp")
+    (literal "/usr/sbin/chown"))
+
+;; The blanket deny has to come first: seatbelt takes the last matching rule, so
+;; re-allowing after denying is what makes the clone the only writable place.
+(deny file-write*)
+(allow file-write*
+    (subpath (param "SCRATCH_ROOT"))
+    (literal "/dev/null")
+    (literal "/dev/zero")
+    (literal "/dev/random")
+    (literal "/dev/urandom")
+    (literal "/dev/stdout")
+    (literal "/dev/stderr")
+    (literal "/dev/tty")
+    (regex #"^/dev/fd/"))

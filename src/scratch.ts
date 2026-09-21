@@ -37,7 +37,6 @@ const CLONE_FLAGS: Partial<Record<NodeJS.Platform, string>> = {
   linux: '--reflink=auto',
 };
 
-/** Copies one file, symlink or whole directory; `destination` must not exist. */
 async function cloneEntry(
   source: string,
   destination: string,
@@ -55,63 +54,75 @@ async function cloneEntry(
   await run('cp', ['-R', source, destination]);
 }
 
-/**
- * What one directory costs to clone, and whether anything under it is ignored.
- * A `clean` subtree can be handed to a single `cp`, which is what keeps this
- * down to a few processes on a normal workspace; only the directories that
- * actually contain an ignored path get walked entry by entry.
- */
-interface PlannedDirectory {
-  clean: boolean;
+interface DirectoryPlan {
+  nothingIgnoredBelow: boolean;
   bytes: number;
-  children: Array<{ name: string; node: PlannedDirectory }>;
+  children: Array<{ name: string; plan: DirectoryPlan }>;
 }
+
+const leafPlan = (bytes: number): DirectoryPlan => ({
+  nothingIgnoredBelow: true,
+  bytes,
+  children: [],
+});
 
 async function planDirectory(
   absolute: string,
   relative: string,
   rules: IgnoreRules,
-): Promise<PlannedDirectory> {
-  const children: PlannedDirectory['children'] = [];
-  let clean = true;
+): Promise<DirectoryPlan> {
+  const children: DirectoryPlan['children'] = [];
+  let nothingIgnoredBelow = true;
   let bytes = 0;
 
   for (const entry of await readdir(absolute, { withFileTypes: true })) {
     const childRelative = relative ? `${relative}/${entry.name}` : entry.name;
     if (rules.ignores(childRelative)) {
-      clean = false;
+      nothingIgnoredBelow = false;
       continue;
     }
 
     const childAbsolute = join(absolute, entry.name);
-    // A symlink is a leaf even when it points at a directory: cp -R copies the
-    // link itself, and following it could walk outside the workspace.
-    const node = entry.isDirectory()
+    const plan = entry.isDirectory()
       ? await planDirectory(childAbsolute, childRelative, rules)
-      : { clean: true, bytes: (await lstat(childAbsolute)).size, children: [] };
+      : leafPlan((await lstat(childAbsolute)).size);
 
-    if (!node.clean) clean = false;
-    bytes += node.bytes;
-    children.push({ name: entry.name, node });
+    if (!plan.nothingIgnoredBelow) nothingIgnoredBelow = false;
+    bytes += plan.bytes;
+    children.push({ name: entry.name, plan });
   }
 
-  return { clean, bytes, children };
+  return { nothingIgnoredBelow, bytes, children };
+}
+
+async function copyPlannedChildren(
+  sourceDirectory: string,
+  destinationDirectory: string,
+  plan: DirectoryPlan,
+  platform: NodeJS.Platform,
+): Promise<void> {
+  for (const child of plan.children) {
+    await copyPlanned(
+      join(sourceDirectory, child.name),
+      join(destinationDirectory, child.name),
+      child.plan,
+      platform,
+    );
+  }
 }
 
 async function copyPlanned(
   absolute: string,
   destination: string,
-  node: PlannedDirectory,
+  plan: DirectoryPlan,
   platform: NodeJS.Platform,
 ): Promise<void> {
-  if (node.clean) {
+  if (plan.nothingIgnoredBelow) {
     await cloneEntry(absolute, destination, platform);
     return;
   }
   await mkdir(destination, { recursive: true });
-  for (const child of node.children) {
-    await copyPlanned(join(absolute, child.name), join(destination, child.name), child.node, platform);
-  }
+  await copyPlannedChildren(absolute, destination, plan, platform);
 }
 
 export interface CreateScratchOptions {
@@ -129,11 +140,7 @@ export async function createScratchClone({
 
   const created = await mkdtemp(join(tmpdir(), 'bashle-run-'));
   const root = await realpath(created);
-  // The scratch root already exists, so its children are copied in one by one
-  // rather than handing the whole workspace to a single cp.
-  for (const child of plan.children) {
-    await copyPlanned(join(sourceRoot, child.name), join(root, child.name), child.node, process.platform);
-  }
+  await copyPlannedChildren(sourceRoot, root, plan, process.platform);
 
   const bookkeepingDirectory = join(root, BOOKKEEPING_DIRECTORY_NAME);
   const home = join(bookkeepingDirectory, 'home');

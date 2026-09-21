@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# @probe staging => exit 1
+# @probe staging => exit 0
 # @probe ppr => exit 0
 # @probe prod => exit 1
 set -uo pipefail

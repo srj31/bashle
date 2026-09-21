@@ -42,12 +42,14 @@ class BashleSession implements vscode.Disposable {
   private readonly diagnostics = vscode.languages.createDiagnosticCollection('bashle');
   private readonly statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   private readonly preludePath: string;
+  private readonly sandboxProfilePath: string;
 
   private bash: DiscoveredBash | undefined;
   private latestRunToken = 0;
 
   constructor(context: vscode.ExtensionContext) {
     this.preludePath = join(context.extensionPath, 'resources', 'prelude.sh');
+    this.sandboxProfilePath = join(context.extensionPath, 'resources', 'sandbox.sb');
     this.statusBar.command = 'bashle.showPanel';
   }
 
@@ -105,6 +107,7 @@ class BashleSession implements vscode.Disposable {
           await runProbe({
             bashPath: bash.path,
             preludePath: this.preludePath,
+            sandboxProfilePath: this.sandboxProfilePath,
             scriptPath: document.uri.fsPath,
             workspaceRoot: workspaceRootFor(document),
             probe,

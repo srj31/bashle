@@ -2,22 +2,13 @@ export const SANDBOX_EXEC = '/usr/bin/sandbox-exec';
 
 export const BUBBLEWRAP_SEARCH_PATH = ['/usr/bin/bwrap', '/usr/local/bin/bwrap', '/bin/bwrap', 'bwrap'];
 
-export interface SandboxProfileOptions {
-  writableRoots: string[];
-  allowNetwork?: boolean;
+export interface SeatbeltOptions {
+  profilePath: string;
+  /** Must be a real path: seatbelt does not follow symlinks. */
+  scratchRoot: string;
 }
 
-const WRITABLE_DEVICES = [
-  '/dev/null',
-  '/dev/zero',
-  '/dev/random',
-  '/dev/urandom',
-  '/dev/stdout',
-  '/dev/stderr',
-  '/dev/tty',
-];
-
-const FORBIDDEN_EXECUTABLES = ['/usr/bin/sudo', '/usr/bin/su', '/usr/bin/chgrp', '/usr/sbin/chown'];
+export const SCRATCH_ROOT_PARAM = 'SCRATCH_ROOT';
 
 /**
  * Paths bubblewrap masks with /dev/null so they cannot be executed. Linux
@@ -33,37 +24,9 @@ export const LINUX_FORBIDDEN_EXECUTABLES = [
   '/usr/bin/pkexec',
 ];
 
-function quoteForProfile(path: string): string {
-  return `"${path.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
-}
-
-export function buildSandboxProfile({
-  writableRoots,
-  allowNetwork = false,
-}: SandboxProfileOptions): string {
-  const writableSubpaths = writableRoots.map((root) => `    (subpath ${quoteForProfile(root)})`);
-  const writableDevices = WRITABLE_DEVICES.map((device) => `    (literal ${quoteForProfile(device)})`);
-  const forbiddenExecutables = FORBIDDEN_EXECUTABLES.map(
-    (executable) => `    (literal ${quoteForProfile(executable)})`,
-  );
-
-  return [
-    '(version 1)',
-    '(allow default)',
-    allowNetwork ? '' : '(deny network*)',
-    '(deny process-exec',
-    ...forbiddenExecutables,
-    ')',
-    '(deny file-write*)',
-    '(allow file-write*',
-    ...writableSubpaths,
-    ...writableDevices,
-    '    (regex #"^/dev/fd/")',
-    ')',
-    '',
-  ]
-    .filter((line) => line !== '')
-    .join('\n');
+/** Containment itself lives in `resources/sandbox.sb`; the root goes over as argv, not as profile text. */
+export function buildSeatbeltArgs({ profilePath, scratchRoot }: SeatbeltOptions): string[] {
+  return ['-D', `${SCRATCH_ROOT_PARAM}=${scratchRoot}`, '-f', profilePath];
 }
 
 export interface BubblewrapOptions {

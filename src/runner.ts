@@ -15,6 +15,7 @@ const STDIO_BEFORE_TRACE_FD = ['pipe', 'pipe', 'pipe', 'ignore', 'ignore', 'igno
 export interface RunProbeOptions {
   bashPath: string;
   preludePath: string;
+  sandboxProfilePath: string;
   scriptPath: string;
   workspaceRoot: string;
   probe: Probe;
@@ -34,6 +35,8 @@ interface SpawnOutcome {
   timedOut: boolean;
 }
 
+type ShellFile = string
+
 function scratchPathFor(scratch: ScratchWorkspace, workspaceRoot: string, path: string): string {
   return join(scratch.root, relative(workspaceRoot, path));
 }
@@ -42,7 +45,7 @@ async function writeFunctionDriver(
   scratch: ScratchWorkspace,
   scriptInScratch: string,
   probe: Probe,
-): Promise<string> {
+): Promise<ShellFile> {
   const args = splitShellWords(probe.argsRaw).map(quoteShellWord).join(' ');
   const driverPath = join(scratch.bookkeepingDirectory, 'driver.sh');
   await writeFile(
@@ -159,11 +162,8 @@ export async function runProbe(options: RunProbeOptions): Promise<RunResult> {
     const containment = await planContainment({
       enforce: options.enforceSandbox,
       scratchRoot: scratch.root,
-      bookkeepingDirectory: scratch.bookkeepingDirectory,
+      sandboxProfilePath: options.sandboxProfilePath,
     });
-    if (containment.profile) {
-      await writeFile(containment.profile.path, containment.profile.contents, 'utf8');
-    }
     if (containment.warning) warnings.push(containment.warning);
 
     const { command, args } = buildCommand({
