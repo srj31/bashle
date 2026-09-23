@@ -184,7 +184,10 @@ emits the whole report already rendered, so any editor can drive the same engine
 - [How it works](docs/internals.md) — the tracer, the record format, what's covered
 - [Contributing](CONTRIBUTING.md) — running it locally, the test suite
 - [A semantics for holes](docs/semantics.md) — what a hole means, stated as rules, with the
-  gaps named · [reading](readings/semantics.md)
+  gaps named. The rules are also formalized in Lean 4 · [reading](readings/semantics.md)
+- [The semantics, in Lean 4](proofs/README.md) — the rules as machine-checked definitions,
+  with the theorems stated over them and proved a tier at a time. Lean checks the rules are
+  coherent, not that they match bash.
 
 ## License
 

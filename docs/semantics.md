@@ -3,8 +3,9 @@
 Companion to [the reading notes](../readings/semantics.md).
 
 **Status: v0, deliberately partial.** Every section is marked *settled*, *stated* or
-*open*. Nothing here is proven. The point of v0 is to make the guesses in the
-implementation visible and nameable, not to be complete.
+*open*. The prose here proves nothing; the Lean development in `proofs/` proves the
+theorems it states — not that they describe bash. The point of v0 is to make the
+guesses in the implementation visible and nameable, not to be complete.
 
 ## The one idea
 
@@ -132,11 +133,11 @@ gap between the tool and this document. *(stated; unimplemented)*
 ## Theorems, as claims
 
 **T1 — Totality.** For all `c` and `Γ`, evaluation does not get stuck. An unanswered
-request never aborts a run. *(stated; this is the design's core promise and the easiest
-to test in Redex before proving)*
+request never aborts a run. *(stated in Lean as `progress`)*
 
 **T2 — Reach soundness.** If `ι ∈ ŝ` for some value `ŝ` in the final state, then that
-value depends on `ι`: there exist two fills yielding different values. *(stated)*
+value depends on `ι`: there exist two fills yielding different values. *(stated in Lean
+as `reach_sound`; vacuous in milestone 1 — see Mechanization)*
 
 **T2′ — Reach incompleteness.** The converse fails. `if curl -f u; then x=a; else x=b; fi`
 makes `x` depend on `ι` while containing no occurrence of it. Reach tracks *data*
@@ -151,7 +152,17 @@ this is a counterexample, not a conjecture)*
 
 Filling and then running agrees with running and then substituting — exactly when the
 path condition holds. T3 is what makes the `◇1` annotations *honest*: without it,
-`dest=releases/◇1` is not a claim about what any fill would do. *(stated)*
+`dest=releases/◇1` is not a claim about what any fill would do. *(stated in Lean as `fill_commutes`)*
+
+Each of these is now a Lean statement in
+[`proofs/Bashle/Theorems.lean`](../proofs/Bashle/Theorems.lean): `progress` and
+`open_steps` for T1, `reach_sound` for T2, `reach_incomplete` for T2′, and
+`fill_commutes` for T3. The file is a workbook: the thirteen are arranged in
+four tiers, simplest first, and each body stays `sorry` until it is proved.
+`proofs/EXPECTED_SORRIES` records how many are outstanding and CI pins it, so
+the count cannot drift. T2′ is a computation over the concrete counterexample
+rather than an argument — though `decide` alone stalls on `step?`'s
+well-founded recursion.
 
 ## Open decisions
 
@@ -183,15 +194,83 @@ which `[[ -f releases/x ]]` for determinate `x` is unanswerable, because `ι` mi
 | `ŝ₁ŝ₂` | bash's own concatenation; no code needed |
 | `ι ∈ ŝ` | `reaches`, by substring scan |
 | `elided(r, ι)` | an `H` record with state `open` |
-| `π` | **nothing** |
+| `π` | **nothing** — and absent from the Lean model too, by decision, not oversight |
 
 That last row is the summary of this document.
 
+## Mechanization
+
+The rules above are formalized in Lean 4 in [`proofs/`](../proofs/), as a
+small-step relation `Step` rather than the big-step `⇓` written here. The
+translation is deliberate: T1 says evaluation does not get *stuck*, and big-step
+cannot distinguish getting stuck from running forever, so the theorem is not
+even statable in the notation this document uses.
+
+`reach_sound` (T2) needed a correction along the way: as first stated it was
+false, because `Word.lit` accepts a symbolic string — a program can write an
+`ι` straight into its source text, and no fill changes a literal. The fix adds
+a `litsDeterminate` hypothesis, ruling that shape out, and a new lemma,
+`env_determinate`, that `reach_sound` leans on. `fill_commutes` (T3) needed the
+same hypothesis for the same reason.
+
+**T2 holds only vacuously in milestone 1.** `Env` is written by `assign` alone,
+through `evalWord`; no request rule touches it. The one mechanism that would
+carry a request's output into a variable — command substitution — is out of
+milestone-1 scope. So no hole's value can ever reach a variable, `reach_sound`'s
+hypothesis is never satisfiable, and `env_determinate` is what proves that. This
+is a fact about the fragment, not a defect in the statement: T2 acquires actual
+content once command substitution lands.
+
+**T3 is satisfiable, but thin.** Unlike `reach_sound`'s, `fill_commutes`'s
+hypotheses can be met, and the proof rests on real forward simulation
+(`step_agrees`, `finalEnv_fill`): a status-0 fill for an unanswered request is
+shown, step for step, to change nothing but the trace and the fresh-variable
+counter. That is also the limit of its milestone-1 content — both sides of the
+conclusion rewrite to the same `finalEnv Γ c`, because the fill changes nothing
+and the substitution then has nothing to do. Like T2, T3 acquires its intended
+content once command substitution lands.
+
+Two things the Lean model does not carry:
+
+- **No path condition.** `π` is absent from `Config`, not modelled as empty. In
+  v0 `OPEN` returns status `0`, never a symbolic status, so `IF-TRUE-SYM` can
+  never fire and a `π` field would be provably always `[]` — which would read as
+  if the semantics tracked control dependence. It arrives with O2.
+- **Every external command is a request.** `exec w⃗` reduces to `req r`
+  unconditionally, so `FILL` and `OPEN` are the only source of external
+  behaviour. Real bash runs plenty of commands bashle does not shim; modelling
+  those needs an oracle the bare core would never consult.
+
+**What this establishes, and what it does not.** Lean checks that these rules
+are internally coherent. It does not check that they describe bash — nothing in
+`proofs/` has ever run a shell. A semantics can be perfectly consistent and
+still be wrong about the thing it models, and closing that gap is a separate
+piece of work, below. That limitation matters more now that the theorems are
+actually proved, not less.
+
 ## Next
 
-1. Read Smoosh and decide whether the fragment above is replaced by it. Prefer replaced.
-2. Encode v0 in PLT Redex and use `redex-check` to differential-test against real bash
-   on *determinate* programs — that validates the fragment before any hole is involved.
-3. Test T1 by random generation before attempting a proof.
-4. Decide O2, since O1 and O3 both get easier once statuses can be symbolic.
-5. Only then consider mechanization. Redex first is the cheap 80%.
+The original plan here put PLT Redex first and mechanization last. That has been
+inverted, for one reason: Redex's payoff is `redex-check`, differential-testing
+the rules against real bash — and Lean can do that too, now that the executable
+`step?` is proved equal to the relation `Step` (`step?_iff`). Doing it in Lean
+means one definition instead of two, where a Redex model and a Lean model would
+have to be kept in step by hand with nothing checking that they were.
+
+The milestone-1 rules are settled; the thirteen theorems stated over them are
+being proved a tier at a time. What is left:
+
+1. Decide O2. Symbolic exit status is the keystone: `π` and `IF-TRUE-SYM` both
+   become real the moment it lands, and O1 and O3 both get easier.
+2. Extend the fragment — `while`, then command substitution and functions, then
+   the store. Command substitution is also what gives `reach_sound` its first
+   non-vacuous case.
+3. Differential-test `step?` against real bash on determinate programs. This is
+   what validates the fragment, and until it exists the mechanization is a
+   consistency check and nothing more.
+4. Read Smoosh and decide whether the fragment is replaced by it. Still prefer
+   replaced: adding one rule to an existing POSIX semantics is a far stronger
+   thing to cite than a rival fragment, however well mechanized.
+5. Word splitting last. O1 may force the value domain to change from symbolic
+   strings to symbolic *sequences*, which invalidates the domain rather than
+   extending it.
