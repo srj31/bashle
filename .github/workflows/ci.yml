@@ -193,3 +193,24 @@ jobs:
             echo "::error::$actual unproved theorems, EXPECTED_SORRIES says $expected"
             exit 1
           fi
+
+      # Counting warnings is not enough on its own. A theorem proved FROM a
+      # theorem that is still `sorry` emits no warning of its own — it looks
+      # finished — and `exact?` produces exactly that, because it searches
+      # every theorem in scope whether or not its body is filled in. Such a
+      # proof would drop the warning count and pass the gate above while
+      # establishing nothing. `#print axioms` sees through it: anything resting
+      # on an unproved theorem reports `sorryAx`, however indirectly. Requiring
+      # the two counts to agree is what makes a hollow proof fail the build.
+      - name: No hollow proofs
+        working-directory: proofs
+        run: |
+          set -o pipefail
+          expected=$(tr -d '[:space:]' < EXPECTED_SORRIES)
+          lake env lean Audit.lean 2>&1 | tee "$RUNNER_TEMP/audit.log"
+          hollow=$(grep -c 'sorryAx' "$RUNNER_TEMP/audit.log" || true)
+          echo "sorryAx=$hollow expected=$expected"
+          if [ "$hollow" != "$expected" ]; then
+            echo "::error::$hollow theorems depend on sorryAx but EXPECTED_SORRIES says $expected — a proof is resting on an unproved one"
+            exit 1
+          fi
