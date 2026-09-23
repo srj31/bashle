@@ -148,3 +148,48 @@ jobs:
           name: bashle-vsix-${{ github.sha }}
           path: bashle.vsix
           retention-days: 14
+
+  proofs:
+    name: Lean proofs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      # Only the toolchain download is cached, never .lake/build. A cached build
+      # replays no warnings, and the sorry-free check below reads warnings — so
+      # caching the build output would make that check silently vacuous.
+      - name: Cache the Lean toolchain
+        uses: actions/cache@v4
+        with:
+          path: ~/.elan
+          key: elan-${{ runner.os }}-${{ hashFiles('proofs/lean-toolchain') }}
+
+      - name: Install elan
+        run: |
+          curl -sSfL https://elan.lean-lang.org/elan-init.sh | sh -s -- -y --default-toolchain none
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Build
+        working-directory: proofs
+        # `pipefail` because the default shell is `bash -e` without it, so
+        # `tee`'s exit status would hide a failing `lake build` entirely.
+        run: |
+          set -o pipefail
+          lake build 2>&1 | tee "$RUNNER_TEMP/build.log"
+
+      # The workbook's `sorry`s are the remaining exercises, and the count is
+      # the progress bar. Pinning it exactly catches both directions: a proof
+      # that regressed into `sorry`, and a proved theorem whose count nobody
+      # decremented. Lean writes the warning with BACKTICKS around `sorry`, so
+      # the pattern must not assume straight quotes.
+      - name: Remaining `sorry` count matches EXPECTED_SORRIES
+        working-directory: proofs
+        run: |
+          set -o pipefail
+          expected=$(tr -d '[:space:]' < EXPECTED_SORRIES)
+          actual=$(grep -c 'declaration uses .sorry.' "$RUNNER_TEMP/build.log" || true)
+          echo "expected=$expected actual=$actual"
+          if [ "$actual" != "$expected" ]; then
+            echo "::error::$actual unproved theorems, EXPECTED_SORRIES says $expected"
+            exit 1
+          fi
