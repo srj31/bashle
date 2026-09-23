@@ -1,0 +1,9 @@
+name = "bashle-semantics"
+defaultTargets = ["Bashle", "Tests"]
+
+[[lean_lib]]
+name = "Bashle"
+
+
+[[lean_lib]]
+name = "Tests"
