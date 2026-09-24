@@ -13,4 +13,5 @@ examples/**
 plugin/**
 autoload/**
 docs/**
+coverage/**
 proofs/**

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Files with more than one probe now show one probe's output at a time, so annotations from
+  different probes no longer stack on the same line. In VS Code a lens above each `# @probe`
+  switches between them; in Vim it is `:BashleProbe` (`<Leader>bn` to cycle, a number to pick
+  one, `all` for every probe). Switching repaints from the last run and never re-runs the script.
+- `proofs/`: the holes semantics formalized in Lean 4 — the small-step rules, an executable
+  `step?` that mirrors them, and the theorems from `docs/semantics.md` stated over them. Lean
+  checks the rules are internally coherent, not that they describe bash.
+- Packaging: `proofs/` and `coverage/` no longer ship inside the extension.
+
 - `.bashleignore`: exclude paths from the scratch clone using `.gitignore` syntax, negation included.
   `.git` and `node_modules` are now skipped by default — a `!node_modules` line wins them back.
 - `maxCloneBytes` now measures only the files that will actually be copied, so a large `node_modules`
