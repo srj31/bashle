@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { formatInlineAnnotation, formatHoverMarkdown, groupExecutionsByLine } from './annotations';
-import type { Hole, LineExecution, RunResult } from './types';
+import { visibleResults } from './probeSelection';
+import type { Hole, LineExecution, RunResult, Selection } from './types';
 
 const INLINE_MARGIN = '0 0 0 2.5em';
 
@@ -60,14 +61,14 @@ export class AnnotationRenderer implements vscode.Disposable {
     };
   }
 
-  render(editor: vscode.TextEditor, results: RunResult[]): void {
+  render(editor: vscode.TextEditor, results: RunResult[], selection: Selection): void {
     const document = editor.document;
     const succeeded: vscode.DecorationOptions[] = [];
     const failed: vscode.DecorationOptions[] = [];
     const passingVerdicts: vscode.DecorationOptions[] = [];
     const failingVerdicts: vscode.DecorationOptions[] = [];
 
-    for (const result of results) {
+    for (const result of visibleResults(results, selection)) {
       for (const [lineNumber, executions] of groupExecutionsByLine(result.trace.executions)) {
         const decoration = this.annotationFor(document, lineNumber, executions, result.holes);
         if (!decoration) continue;

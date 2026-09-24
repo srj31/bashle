@@ -4,8 +4,10 @@ import { parseProbes } from './probeParser';
 import { discoverBash, type DiscoveredBash } from './bashDiscovery';
 import { runProbe } from './runner';
 import { AnnotationRenderer } from './decorations';
+import { ProbeLensProvider } from './probeLens';
+import { clampSelection, visibleResults } from './probeSelection';
 import { BashlePanel, type PanelTab } from './panel';
-import type { RunResult } from './types';
+import type { RunResult, Selection } from './types';
 
 const SHELL_LANGUAGE_ID = 'shellscript';
 
@@ -38,6 +40,7 @@ function workspaceRootFor(document: vscode.TextDocument): string {
 
 class BashleSession implements vscode.Disposable {
   private readonly renderer = new AnnotationRenderer();
+  readonly probeLenses = new ProbeLensProvider();
   private readonly panel = new BashlePanel();
   private readonly diagnostics = vscode.languages.createDiagnosticCollection('bashle');
   private readonly statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
@@ -46,6 +49,10 @@ class BashleSession implements vscode.Disposable {
 
   private bash: DiscoveredBash | undefined;
   private latestRunToken = 0;
+
+  /** Which probe each document is showing. A run clamps it; it never re-runs. */
+  private readonly selections = new Map<string, Selection>();
+  private latest: { document: vscode.TextDocument; results: RunResult[] } | undefined;
 
   constructor(context: vscode.ExtensionContext) {
     this.preludePath = join(context.extensionPath, 'resources', 'prelude.sh');
@@ -88,6 +95,8 @@ class BashleSession implements vscode.Disposable {
 
     if (parsed.probes.length === 0) {
       if (editor) this.renderer.clear(editor);
+      this.latest = undefined;
+      this.probeLenses.clear();
       this.panel.update([], activeTab);
       this.statusBar.text = 'Bashle: no probes';
       this.statusBar.show();
@@ -123,9 +132,14 @@ class BashleSession implements vscode.Disposable {
 
       if (runToken !== this.latestRunToken) return;
 
-      if (editor) this.renderer.render(editor, results);
-      this.panel.update(results, activeTab);
-      this.statusBar.text = this.describe(results);
+      const key = document.uri.toString();
+      const selection = clampSelection(
+        this.selections.get(key) ?? { kind: 'one', index: 0 },
+        results.length,
+      );
+      this.selections.set(key, selection);
+      this.latest = { document, results };
+      this.paint(activeTab);
     } catch (error) {
       if (runToken !== this.latestRunToken) return;
       const message = error instanceof Error ? error.message : String(error);
@@ -138,8 +152,28 @@ class BashleSession implements vscode.Disposable {
     this.panel.reveal(tab);
   }
 
+  /** Draws the current selection. Used by a run and by switching probes. */
+  private paint(activeTab: PanelTab = 'files'): void {
+    if (!this.latest) return;
+    const { document, results } = this.latest;
+    const selection = this.selections.get(document.uri.toString()) ?? { kind: 'one', index: 0 };
+    const editor = vscode.window.visibleTextEditors.find((c) => c.document === document);
+    if (editor) this.renderer.render(editor, results, selection);
+    this.panel.update(visibleResults(results, selection), activeTab);
+    this.statusBar.text = this.describe(results);
+    this.probeLenses.update(document, results, selection);
+  }
+
+  showProbe(selection: Selection): void {
+    if (!this.latest) return;
+    this.selections.set(this.latest.document.uri.toString(), selection);
+    this.paint();
+  }
+
   clear(): void {
     this.latestRunToken++;
+    this.latest = undefined;
+    this.probeLenses.clear();
     for (const editor of vscode.window.visibleTextEditors) this.renderer.clear(editor);
     this.diagnostics.clear();
     this.panel.update([]);
@@ -148,6 +182,7 @@ class BashleSession implements vscode.Disposable {
 
   dispose(): void {
     this.renderer.dispose();
+    this.probeLenses.dispose();
     this.panel.dispose();
     this.diagnostics.dispose();
     this.statusBar.dispose();
@@ -170,6 +205,13 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     vscode.commands.registerCommand('bashle.showPanel', () => session.revealPanel('files')),
     vscode.commands.registerCommand('bashle.clear', () => session.clear()),
+    vscode.commands.registerCommand('bashle.showProbe', (selection: Selection) =>
+      session.showProbe(selection),
+    ),
+    vscode.languages.registerCodeLensProvider(
+      { language: SHELL_LANGUAGE_ID },
+      session.probeLenses,
+    ),
     vscode.workspace.onDidSaveTextDocument((document) => {
       if (readSettings().runOnSave) void session.run(document);
     }),

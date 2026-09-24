@@ -128,3 +128,14 @@ export interface RunResult {
   durationMs: number;
   warnings: string[];
 }
+
+/** Which probe's output the editor is currently showing. */
+export type Selection = { kind: 'one'; index: number } | { kind: 'all' };
+
+/** A CodeLens to place on a probe's comment line, as plain data. */
+export interface ProbeLens {
+  lineIndex: number;
+  title: string;
+  command: string;
+  args: [Selection];
+}
