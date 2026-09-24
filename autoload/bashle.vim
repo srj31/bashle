@@ -6,6 +6,10 @@
 
 let s:root = expand('<sfile>:p:h:h')
 let s:reports = {}
+" Which probe each file is showing: an index into its probe list, or -1 for
+" all of them. Drawing every probe stacks one annotation per probe onto each
+" shared line, which is what this narrows.
+let s:selected = {}
 let s:jobs = {}
 let s:types_defined = 0
 let s:panel_name = 'bashle-panel'
@@ -66,6 +70,31 @@ function! s:clear_buffer(bufnr) abort
   endtry
 endfunction
 
+function! s:selection(path) abort
+  return get(s:selected, a:path, 0)
+endfunction
+
+" The probes to draw. Below two there is nothing to choose between, so the
+" selection is ignored rather than hiding the only probe there is.
+function! s:visible_probes(path, report) abort
+  let l:probes = get(a:report, 'probes', [])
+  let l:index = s:selection(a:path)
+  if l:index < 0 || len(l:probes) < 2
+    return l:probes
+  endif
+  return l:index < len(l:probes) ? [l:probes[l:index]] : [l:probes[0]]
+endfunction
+
+function! s:announce(path, probes) abort
+  let l:index = s:selection(a:path)
+  if l:index < 0
+    echo printf('bashle: showing all %d probes', len(a:probes))
+  else
+    echo printf('bashle: showing probe %d of %d · %s',
+          \ l:index + 1, len(a:probes), a:probes[l:index].label)
+  endif
+endfunction
+
 function! s:render(path, report) abort
   let l:bufnr = s:buffer_for(a:path)
   if l:bufnr < 0
@@ -88,7 +117,7 @@ function! s:render(path, report) abort
   endif
 
   let l:last = line('$')
-  for l:probe in get(a:report, 'probes', [])
+  for l:probe in s:visible_probes(a:path, a:report)
     for l:annotation in l:probe.annotations
       if l:annotation.line < 1 || l:annotation.line > l:last
         continue
@@ -137,6 +166,9 @@ function! s:on_exit(path, job, status) abort
   endtry
 
   let s:reports[a:path] = l:report
+  if s:selection(a:path) >= len(get(l:report, 'probes', []))
+    let s:selected[a:path] = 0
+  endif
   call s:render(a:path, l:report)
 endfunction
 
@@ -182,12 +214,61 @@ function! bashle#clear() abort
   if has_key(s:reports, l:path)
     call remove(s:reports, l:path)
   endif
+  if has_key(s:selected, l:path)
+    call remove(s:selected, l:path)
+  endif
 endfunction
 
 function! bashle#forget(path) abort
   if has_key(s:reports, a:path)
     call remove(s:reports, a:path)
   endif
+  if has_key(s:selected, a:path)
+    call remove(s:selected, a:path)
+  endif
+endfunction
+
+" Choose which probe to show. No argument steps to the next one and wraps
+" through 'all'; a number selects it (1-based); 'all' shows every probe.
+" Repaints from the report already in hand — it never re-runs the script.
+" Completion for :BashleProbe — the probe numbers this file actually has.
+function! bashle#probe_complete(lead, line, pos) abort
+  let l:probes = get(get(s:reports, expand('%:p'), {}), 'probes', [])
+  return join(map(range(1, len(l:probes)), 'string(v:val)') + ['all'], "\n")
+endfunction
+
+function! bashle#probe(arg) abort
+  let l:path = expand('%:p')
+  let l:report = get(s:reports, l:path, {})
+  let l:probes = get(l:report, 'probes', [])
+  if empty(l:probes)
+    echo 'bashle: no report yet — :BashleRun'
+    return
+  endif
+
+  if a:arg ==# 'all'
+    let s:selected[l:path] = -1
+  elseif a:arg =~# '^\d\+$'
+    let l:wanted = str2nr(a:arg) - 1
+    if l:wanted < 0 || l:wanted >= len(l:probes)
+      echohl WarningMsg
+      echomsg printf('bashle: no probe %s — this file has %d', a:arg, len(l:probes))
+      echohl None
+      return
+    endif
+    let s:selected[l:path] = l:wanted
+  elseif !empty(a:arg)
+    echohl WarningMsg
+    echomsg 'bashle: :BashleProbe takes a number, "all", or nothing'
+    echohl None
+    return
+  else
+    let l:index = s:selection(l:path)
+    let s:selected[l:path] = l:index + 1 >= len(l:probes) ? -1 : l:index + 1
+  endif
+
+  call s:render(l:path, l:report)
+  call s:announce(l:path, l:probes)
 endfunction
 
 " ------------------------------------------------------------------ inspect
@@ -208,7 +289,7 @@ function! bashle#inspect() abort
 
   let l:wanted = line('.')
   let l:lines = []
-  for l:probe in l:report.probes
+  for l:probe in s:visible_probes(expand('%:p'), l:report)
     for l:hover in l:probe.hovers
       if l:hover.line == l:wanted
         if !empty(l:lines) | call add(l:lines, '') | endif
@@ -270,8 +351,17 @@ function! bashle#panel() abort
     return
   endif
 
-  let l:lines = ['bashle · ' . fnamemodify(l:report.script, ':t')]
-  for l:probe in l:report.probes
+  let l:path = expand('%:p')
+  let l:shown = s:visible_probes(l:path, l:report)
+  let l:total = len(get(l:report, 'probes', []))
+  let l:heading = 'bashle · ' . fnamemodify(l:report.script, ':t')
+  if l:total > 1
+    let l:heading .= len(l:shown) == l:total
+          \ ? printf('  ·  all %d probes', l:total)
+          \ : printf('  ·  probe %d of %d  (:BashleProbe)', s:selection(l:path) + 1, l:total)
+  endif
+  let l:lines = [l:heading]
+  for l:probe in l:shown
     call add(l:lines, '')
     call add(l:lines, '▶ probe: ' . l:probe.label)
     call extend(l:lines, s:hole_lines(l:probe))

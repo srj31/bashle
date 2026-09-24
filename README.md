@@ -150,6 +150,11 @@ you'd treat running them.
 | `⌘⌥R` | `Ctrl+Alt+R` | Run probes in this file |
 | `⌘⌥I` | `Ctrl+Alt+I` | Inspect this line |
 
+A file with more than one probe shows one probe's output at a time, so annotations
+from different probes don't stack on the same line. In VS Code a lens above each
+`# @probe` switches between them; in Vim it's `:BashleProbe`. Switching repaints
+from the last run — it doesn't re-run the script.
+
 Settings: `bashle.runOnSave`, `bashle.timeoutMs`, `bashle.enforceSandbox`, `bashle.bashPath`,
 `bashle.maxRecords`, `bashle.maxCloneBytes`, `bashle.watchAllVariables`. Per-repo config goes in
 `.vscode/settings.json`; see [using bashle in a real repository](docs/using-in-a-repository.md).
@@ -172,6 +177,7 @@ cd ~/.vim/plugged/bashle && npm install && npm run build:cli
 | `:BashleRun` · `<Leader>br` | Run probes for this file |
 | `:BashleInspect` · `<Leader>bi` | Popup for the line under the cursor |
 | `:BashlePanel` · `<Leader>bp` | Holes, files and output in a split |
+| `:BashleProbe` · `<Leader>bn` | Show the next probe on its own — `:BashleProbe 2` picks one, `:BashleProbe all` shows every one |
 
 Configure with `g:bashle_run_on_save`, `g:bashle_node`, `g:bashle_cli`; highlighting follows
 `BashleOk` and `BashleFailed`. The plugin is only a front end — `node dist/cli.js --json <script>`

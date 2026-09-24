@@ -34,6 +34,8 @@ command! BashleRun     call bashle#run()
 command! BashleClear   call bashle#clear()
 command! BashleInspect call bashle#inspect()
 command! BashlePanel   call bashle#panel()
+command! -nargs=? -complete=custom,bashle#probe_complete BashleProbe
+      \ call bashle#probe(<q-args>)
 
 augroup bashle
   autocmd!
@@ -45,8 +47,10 @@ if !hasmapto('<Plug>(bashle-run)')
   nmap <silent> <Leader>br <Plug>(bashle-run)
   nmap <silent> <Leader>bi <Plug>(bashle-inspect)
   nmap <silent> <Leader>bp <Plug>(bashle-panel)
+  nmap <silent> <Leader>bn <Plug>(bashle-probe)
 endif
 
 nnoremap <silent> <Plug>(bashle-run)     :<C-u>BashleRun<CR>
 nnoremap <silent> <Plug>(bashle-inspect) :<C-u>BashleInspect<CR>
 nnoremap <silent> <Plug>(bashle-panel)   :<C-u>BashlePanel<CR>
+nnoremap <silent> <Plug>(bashle-probe)   :<C-u>BashleProbe<CR>
