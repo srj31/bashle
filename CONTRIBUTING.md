@@ -14,15 +14,18 @@ npm run probe -- examples/deploy.sh
 ```
 
 ```
- 15   mkdir -p "$dest"                    mkdir -p releases/staging  dest=releases/staging
- 17   for artifact in app.js styles.css readme md; do   ×4  ✗1  artifact=readme
- 18     cp "artifacts/$artifact" "$dest/"  ×4  cp artifacts/md releases/staging/  ✗1  artifact=md
-
- files changed in the sandbox
-   + releases/staging/app.js
-   + releases/staging/status.txt
-   + releases/staging/styles.css
- exit 0 · ⛨ sandboxed
+▶ probe: staging
+ ⋮
+ 16 mkdir -p "$dest"                              mkdir -p releases/staging  dest=releases/staging
+ 17
+ 18 for artifact in app.js styles.css readme md; do ×4  for artifact in app.js styles.css readme md  ✗1  artifact=readme
+ 19   cp "artifacts/$artifact" "$dest/"           ×4  cp artifacts/md releases/staging/  ✗1  artifact=md  dest=releases/staging
+ ⋮
+files changed in the sandbox
+  + releases/staging/app.js
+  + releases/staging/status.txt
+  + releases/staging/styles.css
+exit 0 · ⛨ sandboxed
 ```
 
 `examples/deploy.sh` has a deliberate bug: `readme md` is unquoted, so it splits into two words and
@@ -44,7 +47,7 @@ the first window; reload the second window after changing extension code.
 ### Tests
 
 ```bash
-npm test              # 156 tests, including end-to-end runs against real bash and a real sandbox
+npm test              # the whole suite, including end-to-end runs against real bash and a real sandbox
 npm run test:coverage # the same run, plus coverage/ (open coverage/lcov-report/index.html)
 npm run build         # bundle to dist/extension.js
 npm run typecheck
