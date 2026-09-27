@@ -229,6 +229,27 @@ describe('runProbe containment', () => {
     expect(result.stdout).toContain('starting');
     expect(result.warnings.join(' ')).toMatch(/Killed after/);
   });
+
+  it('kills the script as soon as the run is aborted, without calling it a timeout', async () => {
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 500);
+    const startedAt = Date.now();
+    const result = await runScript(['# @probe', 'echo starting', 'sleep 30'].join('\n'), {
+      timeoutMs: 20_000,
+      signal: controller.signal,
+    });
+    expect(Date.now() - startedAt).toBeLessThan(5000);
+    expect(result.timedOut).toBe(false);
+    expect(result.exitCode).not.toBe(0);
+  });
+
+  it('does not leave a script running when the run was aborted before it started', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const startedAt = Date.now();
+    await runScript(['# @probe', 'sleep 30'].join('\n'), { timeoutMs: 20_000, signal: controller.signal });
+    expect(Date.now() - startedAt).toBeLessThan(5000);
+  });
 });
 
 describe('supported bash constructs', () => {

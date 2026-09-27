@@ -48,7 +48,8 @@ class BashleSession implements vscode.Disposable {
   private readonly sandboxProfilePath: string;
 
   private bash: DiscoveredBash | undefined;
-  private latestRunToken = 0;
+  /** The run in flight. A newer run, or a clear, aborts it and kills its script. */
+  private currentRun: AbortController | undefined;
 
   /** Which probe each document is showing. A run clamps it; it never re-runs. */
   private readonly selections = new Map<string, Selection>();
@@ -94,6 +95,7 @@ class BashleSession implements vscode.Disposable {
     const editor = vscode.window.visibleTextEditors.find((candidate) => candidate.document === document);
 
     if (parsed.probes.length === 0) {
+      this.cancelRun();
       if (editor) this.renderer.clear(editor);
       this.latest = undefined;
       this.probeLenses.clear();
@@ -103,7 +105,10 @@ class BashleSession implements vscode.Disposable {
       return;
     }
 
-    const runToken = ++this.latestRunToken;
+    this.cancelRun();
+    const run = new AbortController();
+    this.currentRun = run;
+    const { signal } = run;
     this.statusBar.text = `$(sync~spin) Bashle: running ${parsed.probes.length} probe(s)`;
     this.statusBar.show();
 
@@ -112,6 +117,7 @@ class BashleSession implements vscode.Disposable {
       const results: RunResult[] = [];
 
       for (const probe of parsed.probes) {
+        if (signal.aborted) return;
         results.push(
           await runProbe({
             bashPath: bash.path,
@@ -126,11 +132,12 @@ class BashleSession implements vscode.Disposable {
             maxRecords: settings.maxRecords,
             maxCloneBytes: settings.maxCloneBytes,
             enforceSandbox: settings.enforceSandbox,
+            signal,
           }),
         );
       }
 
-      if (runToken !== this.latestRunToken) return;
+      if (signal.aborted) return;
 
       const key = document.uri.toString();
       const selection = clampSelection(
@@ -141,11 +148,18 @@ class BashleSession implements vscode.Disposable {
       this.latest = { document, results };
       this.paint(activeTab);
     } catch (error) {
-      if (runToken !== this.latestRunToken) return;
+      if (signal.aborted) return;
       const message = error instanceof Error ? error.message : String(error);
       this.statusBar.text = '$(error) Bashle: failed';
       vscode.window.showErrorMessage(message);
+    } finally {
+      if (this.currentRun === run) this.currentRun = undefined;
     }
+  }
+
+  private cancelRun(): void {
+    this.currentRun?.abort();
+    this.currentRun = undefined;
   }
 
   revealPanel(tab: PanelTab): void {
@@ -171,7 +185,7 @@ class BashleSession implements vscode.Disposable {
   }
 
   clear(): void {
-    this.latestRunToken++;
+    this.cancelRun();
     this.latest = undefined;
     this.probeLenses.clear();
     for (const editor of vscode.window.visibleTextEditors) this.renderer.clear(editor);
@@ -181,6 +195,7 @@ class BashleSession implements vscode.Disposable {
   }
 
   dispose(): void {
+    this.cancelRun();
     this.renderer.dispose();
     this.probeLenses.dispose();
     this.panel.dispose();

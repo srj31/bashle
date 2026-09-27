@@ -28,6 +28,8 @@ export interface RunProbeOptions {
   maxRecords: number;
   maxCloneBytes: number;
   enforceSandbox: boolean;
+  /** Aborting kills the script's whole process group; the run then returns what it saw. */
+  signal?: AbortSignal;
 }
 
 interface SpawnOutcome {
@@ -77,7 +79,13 @@ export function buildCommand(options: {
 function spawnTraced(
   command: string,
   args: string[],
-  spawnOptions: { cwd: string; env: NodeJS.ProcessEnv; timeoutMs: number; stdin?: string },
+  spawnOptions: {
+    cwd: string;
+    env: NodeJS.ProcessEnv;
+    timeoutMs: number;
+    stdin?: string;
+    signal?: AbortSignal;
+  },
 ): Promise<SpawnOutcome> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
@@ -97,24 +105,33 @@ function spawnTraced(
     const extraDescriptors = child.stdio as unknown as Array<NodeJS.ReadableStream | null>;
     extraDescriptors[TRACE_FILE_DESCRIPTOR]?.on('data', (chunk: Buffer) => traceChunks.push(chunk));
 
+    const kill = () => {
+      if (!child.pid) return;
+      try {
+        process.kill(-child.pid, 'SIGKILL');
+      } catch {
+        child.kill('SIGKILL');
+      }
+    };
     const killTimer = setTimeout(() => {
       timedOut = true;
-      if (child.pid) {
-        try {
-          process.kill(-child.pid, 'SIGKILL');
-        } catch {
-          child.kill('SIGKILL');
-        }
-      }
+      kill();
     }, spawnOptions.timeoutMs);
+    const { signal } = spawnOptions;
+    const stopWatching = () => {
+      clearTimeout(killTimer);
+      signal?.removeEventListener('abort', kill);
+    };
+    if (signal?.aborted) kill();
+    else signal?.addEventListener('abort', kill, { once: true });
 
     child.on('error', (error) => {
-      clearTimeout(killTimer);
+      stopWatching();
       reject(error);
     });
 
     child.on('close', (exitCode) => {
-      clearTimeout(killTimer);
+      stopWatching();
       resolve({
         stdout: Buffer.concat(stdoutChunks).toString('utf8'),
         stderr: Buffer.concat(stderrChunks).toString('utf8'),
@@ -193,6 +210,7 @@ export async function runProbe(options: RunProbeOptions): Promise<RunResult> {
     const outcome = await spawnTraced(command, args, {
       cwd: scratch.root,
       timeoutMs: options.timeoutMs,
+      ...(options.signal ? { signal: options.signal } : {}),
       ...(options.probe.stdin !== undefined ? { stdin: options.probe.stdin } : {}),
       env: {
         ...process.env,
