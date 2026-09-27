@@ -49,6 +49,42 @@ async function resolveBody(
   }
 }
 
+export interface ResolveFixturesOptions {
+  fills: Fill[];
+  workspaceRoot: string;
+}
+
+export interface ResolveFixturesResult {
+  fills: Fill[];
+  warnings: string[];
+}
+
+/**
+ * Reads every `=> @path` fixture into the body of a new fill, whatever its
+ * kind; the parsed fills are left as they are. A fixture that cannot be read
+ * drops its fill with a warning, so the request stays an open hole rather
+ * than being answered, as filled, with nothing.
+ */
+export async function resolveFixtures({
+  fills,
+  workspaceRoot,
+}: ResolveFixturesOptions): Promise<ResolveFixturesResult> {
+  const resolved: Fill[] = [];
+  const warnings: string[] = [];
+
+  for (const fill of fills) {
+    const contents = await resolveBody(fill, workspaceRoot);
+    if ('warning' in contents) {
+      warnings.push(contents.warning);
+      continue;
+    }
+    const { fixture: _read, ...answer } = fill;
+    resolved.push({ ...answer, body: contents.body });
+  }
+
+  return { fills: resolved, warnings };
+}
+
 /**
  * Writes `@file` fills into the clone before the run starts, so the script
  * reads a file that genuinely exists — which `source`, `<` redirection and

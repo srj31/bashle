@@ -480,6 +480,43 @@ describe('command holes', () => {
     );
     expect(result.stdout.trim()).toBe('nothing running');
   });
+
+  it('answers a @net fill from its fixture', async () => {
+    mkdirSync(join(workspace, 'fixtures'));
+    writeFileSync(join(workspace, 'fixtures/latest.json'), '1.4.2');
+    const result = await runScript(
+      [
+        '# @net GET https://api.example.com/v1/latest => @fixtures/latest.json',
+        '# @probe',
+        'set -euo pipefail',
+        'version=$(curl -s https://api.example.com/v1/latest)',
+        'echo "version=[$version]"',
+      ].join('\n'),
+    );
+    expect(result.stdout.trim()).toBe('version=[1.4.2]');
+    expect(result.warnings).toEqual([]);
+  });
+
+  it('answers a @cmd fill from its fixture', async () => {
+    mkdirSync(join(workspace, 'fixtures'));
+    writeFileSync(join(workspace, 'fixtures/ps.txt'), 'CONTAINER ID   IMAGE\nabc123   nginx\n');
+    const result = await runScript(
+      ['# @cmd docker ps => @fixtures/ps.txt', '# @probe', 'docker ps'].join('\n'),
+    );
+    expect(result.stdout).toBe('CONTAINER ID   IMAGE\nabc123   nginx\n');
+  });
+
+  it('warns and leaves the request open when a @net fixture cannot be read', async () => {
+    const result = await runScript(
+      [
+        '# @net GET https://api.example.com/v1/latest => @fixtures/missing.json',
+        '# @probe',
+        'curl -s https://api.example.com/v1/latest || true',
+      ].join('\n'),
+    );
+    expect(result.warnings.join('\n')).toMatch(/fixtures\/missing\.json/);
+    expect(result.trace.holeRecords.map((r) => r.state)).toEqual(['open']);
+  });
 });
 
 describe('an unfilled hole propagates', () => {

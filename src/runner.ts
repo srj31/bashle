@@ -5,7 +5,7 @@ import type { Probe, RunResult, Trace } from './types';
 import { applyProcessExitCode, parseTrace } from './traceParser';
 import { detectChanges, snapshotDirectory } from './fsDiffer';
 import { createScratchClone, type ScratchWorkspace } from './scratch';
-import { materializeFileFills } from './fills';
+import { materializeFileFills, resolveFixtures } from './fills';
 import { generateShims } from './shims';
 import { assembleHoles } from './holes';
 import { planContainment } from './containment';
@@ -163,10 +163,18 @@ export async function runProbe(options: RunProbeOptions): Promise<RunResult> {
   });
 
   try {
+    // Fixtures are read once, for every kind of fill, so a shim answers with
+    // the file's contents just as materialization writes them.
+    const resolved = await resolveFixtures({
+      fills: options.probe.fills,
+      workspaceRoot: options.workspaceRoot,
+    });
+    warnings.push(...resolved.warnings);
+
     // A fill is an input, not a result, so it lands before the baseline
     // snapshot and never shows up in the Files tab as something the run made.
     const materialized = await materializeFileFills({
-      fills: options.probe.fills,
+      fills: resolved.fills,
       workspaceRoot: options.workspaceRoot,
       scratchRoot: scratch.root,
     });
@@ -175,7 +183,7 @@ export async function runProbe(options: RunProbeOptions): Promise<RunResult> {
     // Shims are generated for every name on every run, filled or not, because
     // discovery has to work before anyone has written a fill.
     const shimDirectory = join(scratch.bookkeepingDirectory, 'bin');
-    await generateShims({ binDirectory: shimDirectory, fills: options.probe.fills });
+    await generateShims({ binDirectory: shimDirectory, fills: resolved.fills });
 
     const before = await snapshotDirectory(scratch.root);
     const scriptInScratch = scratchPathFor(scratch, options.workspaceRoot, options.scriptPath);

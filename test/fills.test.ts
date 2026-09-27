@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, mkdir, rm, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { materializeFileFills } from '../src/fills';
+import { materializeFileFills, resolveFixtures } from '../src/fills';
 import type { Fill } from '../src/types';
 
 const fileFill = (over: Partial<Fill> = {}): Fill => ({
@@ -94,5 +94,18 @@ describe('materializeFileFills', () => {
       scratchRoot,
     });
     expect(warnings).toEqual([]);
+  });
+
+  it('resolves fixtures into new fills, leaving the parsed ones untouched', async () => {
+    await mkdir(join(workspaceRoot, 'fixtures'), { recursive: true });
+    await writeFile(join(workspaceRoot, 'fixtures/latest.json'), '1.4.2', 'utf8');
+    const parsed = fileFill({ kind: 'net', request: 'GET https://api/x', body: '', fixture: 'fixtures/latest.json' });
+
+    const { fills } = await resolveFixtures({ fills: [parsed], workspaceRoot });
+
+    expect(fills.map((fill) => fill.body)).toEqual(['1.4.2']);
+    expect(parsed).toEqual(
+      fileFill({ kind: 'net', request: 'GET https://api/x', body: '', fixture: 'fixtures/latest.json' }),
+    );
   });
 });
