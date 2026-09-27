@@ -26,6 +26,13 @@ describe('parseProbes', () => {
     expect(parseProbes(src).probes[0]!.target).toBe('tally');
   });
 
+  it('reads a probe a blank line away from a function as a whole-script probe', () => {
+    const src = ['#!/usr/bin/env bash', '# @probe staging', '', 'log() { echo "$*"; }', 'log "$1"'].join('\n');
+    const { probes } = parseProbes(src);
+    expect(probes[0]!.kind).toBe('script');
+    expect(probes[0]!.target).toBeUndefined();
+  });
+
   it('parses an exit-code expectation', () => {
     const { probes } = parseProbes('# @probe prod => exit 1\necho');
     expect(probes[0]!.expectation).toEqual({ kind: 'exit', code: 1 });
@@ -177,6 +184,20 @@ describe('parseProbes', () => {
     expect(probes[0]!.fills.map((f) => f.kind)).toEqual(['file', 'net']);
   });
 
+  it.each(['<<EOF', "<<'EOF'", '<<"EOF"', "<< 'EOF'"])('opens a heredoc with %s', (opener) => {
+    const src = [`# @file a.conf => ${opener}`, '#   one', '# EOF', '# @probe go', 'echo'].join('\n');
+    const { probes, errors } = parseProbes(src);
+    expect(errors).toEqual([]);
+    expect(probes[0]!.fills[0]!.body).toBe('one\n');
+  });
+
+  it.each(["<<'EOF", "<<EOF'", '<<\'EOF"'])('does not open a heredoc with mismatched quotes in %s', (opener) => {
+    const src = [`# @file a.conf => ${opener}`, '# @probe go', 'echo'].join('\n');
+    const { probes, errors } = parseProbes(src);
+    expect(errors).toEqual([]);
+    expect(probes[0]!.fills[0]!.body).toBe(opener);
+  });
+
   it('reports an unterminated heredoc on the line that opened it', () => {
     const src = ["# @file a.conf => <<'EOF'", '#   one', '# @probe go', 'echo'].join('\n');
     const { errors } = parseProbes(src);
@@ -195,6 +216,19 @@ describe('parseProbes', () => {
     const { errors } = parseProbes(src);
     expect(errors).toHaveLength(1);
     expect(errors[0]!.lineIndex).toBe(1);
+  });
+
+  it('keeps the first of two duplicate fills and reports errors in line order', () => {
+    const src = [
+      '# @net GET https://api/x => "1"',
+      '# @net GET https://api/x => "2"',
+      '# @env not-an-assignment',
+      '# @probe go',
+      'echo',
+    ].join('\n');
+    const { probes, errors } = parseProbes(src);
+    expect(probes[0]!.fills.map((f) => f.body)).toEqual(['1']);
+    expect(errors.map((e) => e.lineIndex)).toEqual([1, 2]);
   });
 
   it('allows the same request under two different directive kinds', () => {

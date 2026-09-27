@@ -12,6 +12,7 @@ export interface Fill {
   fixture?: string;
   exitCode: number;
   outputPath?: string;
+  /** Zero-based, like VS Code's `line`; add 1 before showing it to a person. */
   lineIndex: number;
 }
 
@@ -23,11 +24,13 @@ export interface Probe {
   env: Record<string, string>;
   fills: Fill[];
   stdin?: string;
+  /** Zero-based: the `# @probe` line, and the code line it runs. */
   commentLineIndex: number;
   targetLineIndex: number;
 }
 
 export interface ProbeParseError {
+  /** Zero-based; add 1 before showing it to a person. */
   lineIndex: number;
   message: string;
 }
