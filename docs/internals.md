@@ -28,6 +28,6 @@ inside subshells and process substitution, `trap` handlers you install yourself 
 
 The trace model already records subshell level and nesting depth, so widening coverage is additive.
 
-**Vim** — shipped. See *Using it from Vim* below. Neovim is not covered: it implements
+**Vim** — shipped. See [Vim](guide.md#vim) in the guide. Neovim is not covered: it implements
 neither Vim's text properties nor `popup_create`, though it has equivalents, and the display
 layer is isolated enough that a Neovim backend can be added without reworking the rest.

@@ -15,6 +15,12 @@
   `.git` and `node_modules` are now skipped by default — a `!node_modules` line wins them back.
 - `maxCloneBytes` now measures only the files that will actually be copied, so a large `node_modules`
   no longer pushes a workspace over the limit.
+- Fixed: a `=> @path` fixture on a `@net` or `@cmd` fill was ignored, so the command answered with
+  nothing and the hole was still reported as filled. Fixtures now work for every fill, and one that
+  can't be read gives a warning and leaves the hole open. ([#9](https://github.com/srj31/bashle/issues/9))
+- Fixed: `@stdin` sent its text without a trailing newline, so `read` failed at end of input and a
+  script under `set -e` stopped there. It is now one line of input, like bash's `<<<`.
+- Docs: a shorter README that shows the problem first, and a new [guide](docs/guide.md) to using bashle.
 
 ## 0.1.0
 

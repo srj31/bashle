@@ -3,8 +3,8 @@
 </p>
 
 <p align="center">
-  <em>Stop reading diffs and running tests to find out what your shell script does.<br>
-  Watch it run, line by line, expansion by expansion — without letting it touch your machine.</em>
+  <em>See what your bash script actually runs, line by line, every time you save,<br>
+  without letting it touch your machine.</em>
 </p>
 
 <p align="center">
@@ -15,193 +15,109 @@
 
 ---
 
+## The problem
 
-A bash script's bugs are almost never logic bugs. They're **expansion bugs**: an empty variable,
-an unquoted word that split into three, a glob that matched nothing. `shellcheck` catches some
-statically. A test tells you *that* something failed. Neither shows you what bash actually ran.
+Bash doesn't run the text you wrote. It first fills in the variables, splits words at spaces and
+expands wildcards, and then runs the result. Most shell bugs live in the gap between the two, and
+reading the script won't show you that gap.
 
-Bashle does, on the line, the moment you save:
+This script has two such bugs:
 
 ```bash
-# @probe staging => exit 0         ✗ expected exit 0 · got exit 1
-version=$(curl -s "$api/latest")   version=◇1
-dest="releases/$1/$version"        dest=releases/staging/◇1
-mkdir -p "$dest"                   mkdir -p releases/staging/◇1
-for f in $files; do                ×2  files='my report.txt'
-  cp "$f" "$dest/"                 ×2  cp report.txt releases/staging/◇1/  ✗1
-done
+file=$1
+backup_dir=backup
+
+rm -rf "$backupdir/partial"
+mkdir -p "$backup_dir"
+cp $file "$backup_dir/"
+echo "backed up $file"
 ```
 
-The [probe](#probes) runs the script with `staging` as `$1` and expects exit 0. It got 1:
-`$files` held one filename with a space in it, so the loop ran twice, once per half, and neither
-half exists. `◇1` is the response `curl` would have fetched — a [hole](#holes). Bashle carries it
-forward instead of stopping, so you can see where it ends up: in a directory name.
+The usual ways to find them are all bad:
 
-It runs the script for real, in a throwaway copy-on-write clone of your workspace, with the
-network denied and writes outside the clone blocked by the kernel.
+- **Run it and see.** That runs it against your real files, and this one deletes things.
+- **Add `echo`s or `set -x`.** Then you're digging through a wall of output, away from the code.
+- **Write a test.** A test checks the exit code. This script exits 0, so the test passes.
+
+## What bashle shows you
+
+Add one comment saying how to run the script, then save. Bashle runs it in a throwaway sandbox and
+writes, at the end of each line, what bash actually ran:
+
+```bash
+# @probe "reports/Q3 report.txt" => exit 0   ✓ passed in 44 ms
+file=$1                        file='reports/Q3 report.txt'
+backup_dir=backup              backup_dir=backup
+
+rm -rf "$backupdir/partial"    rm -rf /partial
+mkdir -p "$backup_dir"         mkdir -p backup  backup_dir=backup
+cp $file "$backup_dir/"        cp reports/Q3 report.txt backup/  ✗1  file='reports/Q3 report.txt'  backup_dir=backup
+echo "backed up $file"         echo 'backed up reports/Q3 report.txt'  file='reports/Q3 report.txt'
+```
+
+Both bugs are now on the screen:
+
+- `$backupdir` is a typo for `$backup_dir`, so it was empty, and the `rm` pointed at **`/partial`**,
+  at the root of your disk.
+- `$file` isn't quoted, so bash split the filename at the space. `cp` got `reports/Q3` and
+  `report.txt`, and failed (`✗1`).
+
+The probe still **passed**. The script exited 0, as the probe asked, and it's broken anyway:
+checking the result missed both bugs, and seeing the commands caught them. None of it touched your
+machine. The run happened in a disposable copy of your project, with the network off and writes
+outside the copy blocked by the operating system.
+
+This is [`examples/backup.sh`](examples/backup.sh). Try it yourself.
+
+## What you get
+
+- **Every line as bash ran it:** the command with its variables filled in, its exit code, how many
+  times it ran, and the values it used. Hover a line to see each run.
+- **Every file the script touched:** created, changed or deleted, with the changes shown. All of it
+  in the copy, none in your project.
+- **No real network calls.** `curl`, `ssh`, `docker` and similar commands don't run. Each answer
+  becomes a placeholder (`◇1`) that you can follow through the script, or fill in with a value you
+  choose.
+- **Checks when you want them.** Add `=> exit 0` or `=> "expected output"` to a probe to make it a
+  test.
+- **Your editor:** VS Code, Cursor, VSCodium, Vim 9, or the terminal.
 
 ## Install
 
-**Requires** bash ≥ 4.1 (macOS ships 3.2 — `brew install bash` and bashle finds it), macOS or
-Linux, and on Linux `bubblewrap` for kernel containment (`apt install bubblewrap`).
+You need macOS or Linux, and **bash 4.1 or newer**. macOS ships 3.2, so run `brew install bash` and
+bashle will find it. On Linux, install `bubblewrap` (`apt install bubblewrap`) for the sandbox.
 
-```bash
-git clone https://github.com/srj31/bashle && cd bashle
-npm install && npm run package
-code --install-extension bashle-0.1.0.vsix     # VS Code ≥ 1.85, or cursor --install-extension
-```
+- **Cursor, VSCodium** and other editors that use [Open VSX](https://open-vsx.org/extension/srj31/bashle):
+  search for *Bashle* in the Extensions view.
+- **VS Code** 1.85 or newer: install the `.vsix` from Open VSX, or build it:
 
-For Vim, see [Vim](#vim) below.
+  ```bash
+  git clone https://github.com/srj31/bashle && cd bashle
+  npm install && npm run package
+  code --install-extension bashle-*.vsix
+  ```
 
-## Quick start
+- **Vim** or **the terminal**: see [Set up](docs/guide.md#set-up) in the guide.
 
-Add a comment saying how the script should run, then save.
+## Start here
 
-```bash
-# @probe staging --dry-run
-set -euo pipefail
+1. Open a `.sh` file.
+2. Add a comment with `# @probe` followed by the arguments you'd pass the script.
+3. Save.
 
-target="$1"
-mkdir -p "releases/$target"
-echo "deploying to $target" > "releases/$target/log.txt"
-```
+**New to bashle? Read [the guide](docs/guide.md).** In about ten minutes, and in plain language, it
+covers writing probes, reading the results, handling network calls, and what the sandbox does and
+doesn't protect you from.
 
-You get expansions and exit codes inline, and a **Files** panel showing the run created
-`releases/staging/log.txt` — in the clone, not your repo.
+## Documentation
 
-## Probes
-
-`# @probe <shell words>`, interpreted against whatever it is attached to.
-
-```bash
-# @probe staging --dry-run          ← the script's "$@"
-# @probe prod => exit 1             ← with an expected exit code
-
-# @probe "a//b" => "a/b"            ← attached to a function: its args
-normalize_path() { echo "${1//\/\//\/}"; }
-```
-
-Expectations are optional: `=> exit N` checks the status, `=> "text"` checks stdout. Modifiers
-apply to every probe in the same comment block:
-
-```bash
-# @env DEPLOY_ENV=staging
-# @stdin "yes"
-# @probe --interactive
-```
-
-> **Function probes source your script.** Without a `[[ "${BASH_SOURCE[0]}" == "$0" ]]` guard,
-> its top-level body runs first. Bashle says so rather than letting you wonder.
-
-## Holes
-
-External inputs — a network response, a daemon, a file that isn't there — are not failures.
-They're **unknowns**, and bashle runs *past* them so you can see how far one reaches before you
-know anything:
-
-```bash
-version=$(curl -s "$api/latest")   version='◇1'
-dest="releases/$version"           dest='releases/◇1'
-mkdir -p "$dest"                   mkdir -p releases/◇1
-```
-
-That run finished under `set -euo pipefail`, and the Files tab shows it created
-`releases/◇1/notes.txt` — a file whose name nobody knows yet.
-
-**Fill one** by naming what was requested:
-
-```bash
-# @net   GET https://api.example.com/latest => "1.4.2"
-# @net   GET https://api.example.com/health => exit 22
-# @cmd   docker ps => "no containers"
-# @file  etc/deploy.conf => @fixtures/deploy.conf
-# @clock 2026-01-15T09:30:00Z
-# @probe staging
-```
-
-`=> "text"` sets stdout, `=> exit N` the status, `=> @path` reads a fixture, and a `<<'EOF'`
-heredoc carries anything multi-line. A request with no fill is simply a hole — there is no
-"mock not found" error anywhere in this.
-
-Network calls, sandbox-escaping commands (`docker`, `systemctl`, `ssh`, `aws`, `kubectl`) and
-reads of files absent from the clone become holes. A file that *is* in the clone stays real.
-`date`, `hostname`, `whoami` and `uuidgen` are pre-filled with fixed values so two runs agree.
-
-**A hole is never a way to hide a bug.** If the line reached an empty variable it is marked
-`◇!n` and leads with the cause instead of the fill — `cat "$dest/x"` with an empty `$dest` is an
-expansion bug, not a missing input. The warning stays even if you fill it.
-
-> **Gaps.** `source f` and `read < f` are builtins, so a missing file read that way isn't
-> discovered (a `@file` fill still works). An unquoted `$hole` that word-splits is treated as one
-> word. A branch decided by an unfilled hole isn't recorded, so such a run may not represent
-> every fill. All three are named in [the semantics](docs/semantics.md).
-
-## Containment
-
-Probe runs execute real commands, contained in three layers — and bashle always tells you which
-are active (`⛨` for kernel enforcement, `⚠` for clone-only).
-
-1. **Scratch clone.** Copy-on-write, so it is instant and costs no disk until something writes.
-2. **Redirected environment.** `HOME` and `TMPDIR` point inside the clone.
-3. **Kernel enforcement.** `sandbox-exec` on macOS, bubblewrap on Linux. Writes outside the
-   clone denied, network denied, `sudo` blocked.
-
-**What it does not protect you from:** a command doing its work in another process — `docker`,
-`systemctl`, anything driving a daemon — is not stopped by a file sandbox. Bashle shims the
-common ones into holes so they don't run at all, but treat probes on such scripts with the care
-you'd treat running them.
-
-## Commands
-
-| macOS | Linux | |
-|---|---|---|
-| `⌘⌥R` | `Ctrl+Alt+R` | Run probes in this file |
-| `⌘⌥I` | `Ctrl+Alt+I` | Inspect this line |
-
-A file with more than one probe shows one probe's output at a time, so annotations
-from different probes don't stack on the same line. In VS Code a lens above each
-`# @probe` switches between them; in Vim it's `:BashleProbe`. Switching repaints
-from the last run — it doesn't re-run the script.
-
-Settings: `bashle.runOnSave`, `bashle.timeoutMs`, `bashle.enforceSandbox`, `bashle.bashPath`,
-`bashle.maxRecords`, `bashle.maxCloneBytes`, `bashle.watchAllVariables`. Per-repo config goes in
-`.vscode/settings.json`; see [using bashle in a real repository](docs/using-in-a-repository.md).
-
-## Vim
-
-Requires **Vim 9.0+** for virtual text. On 8.2 the panel and popup still work, without
-end-of-line annotations.
-
-```vim
-Plug 'srj31/bashle'
-```
-
-```bash
-cd ~/.vim/plugged/bashle && npm install && npm run build:cli
-```
-
-| | |
-|---|---|
-| `:BashleRun` · `<Leader>br` | Run probes for this file |
-| `:BashleInspect` · `<Leader>bi` | Popup for the line under the cursor |
-| `:BashlePanel` · `<Leader>bp` | Holes, files and output in a split |
-| `:BashleProbe` · `<Leader>bn` | Show the next probe on its own — `:BashleProbe 2` picks one, `:BashleProbe all` shows every one |
-
-Configure with `g:bashle_run_on_save`, `g:bashle_node`, `g:bashle_cli`; highlighting follows
-`BashleOk` and `BashleFailed`. The plugin is only a front end — `node dist/cli.js --json <script>`
-emits the whole report already rendered, so any editor can drive the same engine.
-
-## More
-
-- [Using bashle in a real repository](docs/using-in-a-repository.md) — `.bashleignore`, large
-  repos, per-repo settings, working directory
-- [How it works](docs/internals.md) — the tracer, the record format, what's covered
-- [Contributing](CONTRIBUTING.md) — running it locally, the test suite
-- [A semantics for holes](docs/semantics.md) — what a hole means, stated as rules, with the
-  gaps named. The rules are also formalized in Lean 4 · [reading](readings/semantics.md)
-- [The semantics, in Lean 4](proofs/README.md) — the rules as machine-checked definitions,
-  with the theorems stated over them and proved a tier at a time. Lean checks the rules are
-  coherent, not that they match bash.
+- **[The bashle guide](docs/guide.md)**: start here
+- [Using bashle in a real repository](docs/using-in-a-repository.md): `.bashleignore`, large
+  repositories, per-project settings
+- [How it works](docs/internals.md): how bashle records a run, and which bash features it covers
+- [A semantics for holes](docs/semantics.md) and [its Lean 4 formalization](proofs/README.md): what
+  a placeholder means, stated precisely
+- [Contributing](CONTRIBUTING.md): running it locally, and the test suite
 
 ## License
 

@@ -4,9 +4,10 @@
 repo. A teammate without bashle installed just sees a comment saying how the script is meant to be run
 — which is documentation you probably wanted anyway.
 
-**The working directory is the workspace root**, not the script's directory. A script at
-`scripts/build.sh` that reads `data.txt` gets the `data.txt` at your repo root. If your script expects
-to run from its own directory, anchor it the usual way:
+**In VS Code, the working directory is the workspace root**, not the script's directory. A script at
+`scripts/build.sh` that reads `data.txt` gets the `data.txt` at your repo root. (Vim and the terminal
+copy and run from the script's own directory instead.) If your script expects to run from its own
+directory, anchor it the usual way:
 
 ```bash
 cd "$(dirname "$0")"
