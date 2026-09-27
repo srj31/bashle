@@ -1,5 +1,5 @@
 import { formatInlineAnnotation, formatHoverMarkdown, groupExecutionsByLine } from './annotations';
-import { renderHoleSentinels } from './holes';
+import { holesByUrgency, renderHoleSentinels } from './holes';
 import type { FileChange, Hole, HoleDiagnostic, ProbeParseError, RunResult, Verdict } from './types';
 
 /**
@@ -81,7 +81,7 @@ function probeReport(source: string, result: RunResult): ReportProbe {
     label: labelFor(result),
     annotations,
     hovers,
-    holes: result.holes,
+    holes: holesByUrgency(result.holes),
     holeDiagnostics: result.holeDiagnostics,
     changes: result.changes.map((change) => ({ ...change, path: show(change.path) })),
     stdout: show(result.stdout),

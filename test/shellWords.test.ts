@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { splitShellWords, quoteShellWord, UnbalancedQuoteError } from '../src/shellWords';
+import { splitShellWords, quoteShellWord, unquoteScalar, UnbalancedQuoteError } from '../src/shellWords';
 
 describe('splitShellWords', () => {
   it('splits on whitespace', () => {
@@ -63,5 +63,20 @@ describe('quoteShellWord', () => {
       expect(quoted.startsWith("'")).toBe(true);
       expect(quoted.endsWith("'")).toBe(true);
     }
+  });
+});
+
+describe('unquoteScalar', () => {
+  it('strips double quotes and undoes the escapes bash honours inside them', () => {
+    expect(unquoteScalar('"say \\"hi\\" for \\$5"')).toBe('say "hi" for $5');
+  });
+
+  it('strips single quotes and leaves backslashes alone', () => {
+    expect(unquoteScalar("'a\\\"b'")).toBe('a\\"b');
+  });
+
+  it('returns an unquoted or half-quoted value as it is', () => {
+    expect(unquoteScalar('plain')).toBe('plain');
+    expect(unquoteScalar('"open')).toBe('"open');
   });
 });

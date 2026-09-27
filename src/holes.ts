@@ -184,17 +184,15 @@ export function assembleHoles({ trace, changes }: AssembleHolesOptions): Assembl
   };
 }
 
-/** How a hole reads once a person sees it. */
 export const holeLabel = (hole: Hole): string => `${hole.suspect ? '\u25c7!' : '\u25c7'}${hole.id}`;
+
+export function holesByUrgency(holes: Hole[]): Hole[] {
+  const rank = (hole: Hole) => (hole.suspect ? 0 : hole.state === 'open' ? 1 : 2);
+  return [...holes].sort((a, b) => rank(a) - rank(b) || a.id - b.id);
+}
 
 const ANSI_C_QUOTED = /\$'((?:[^'\\]|\\.)*)'/g;
 
-/**
- * Replaces a sentinel with the hole's display id wherever it surfaces: variable
- * values, expanded commands, the script's own output, and filenames. Bash wraps
- * a control-character value in ANSI-C quoting, so that wrapper is unwrapped too
- * rather than left around a rendered id.
- */
 export function renderHoleSentinels(text: string, holes: Hole[]): string {
   const idByToken = new Map<string, number>();
   for (const hole of holes) for (const token of hole.tokens) idByToken.set(token, hole.id);

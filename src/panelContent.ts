@@ -1,5 +1,5 @@
-import type { FileChange, Hole, RunResult } from './types';
-import { holeLabel } from './holes';
+import type { FileChange, RunResult } from './types';
+import { holeLabel, holesByUrgency } from './holes';
 
 export function escapeHtml(text: string): string {
   return text
@@ -84,25 +84,21 @@ function renderOutputTab(results: RunResult[]): string {
   return sections.join('');
 }
 
-/**
- * Suspect holes sort first and show their cause instead of a fill: the point
- * of the guard is that a fill is never the easiest thing to reach for next to
- * an expansion bug.
- */
 /** The count is of open holes only; pre-filled ones are not work to do. */
 function holesTabLabel(results: RunResult[]): string {
   const open = results.flatMap((result) => result.holes).filter((hole) => hole.state === 'open');
   return open.length ? `Holes (${open.length})` : 'Holes';
 }
 
+/**
+ * Suspect holes show their cause instead of a fill: the point of the guard is
+ * that a fill is never the easiest thing to reach for next to an expansion bug.
+ */
 function renderHolesTab(results: RunResult[]): string {
   const holes = results.flatMap((result) => result.holes);
   if (holes.length === 0) return '<p class="empty">This run reached no holes.</p>';
 
-  const rank = (hole: Hole) => (hole.suspect ? 0 : hole.state === 'open' ? 1 : 2);
-  const ordered = [...holes].sort((a, b) => rank(a) - rank(b) || a.id - b.id);
-
-  const rows = ordered.map((hole) => {
+  const rows = holesByUrgency(holes).map((hole) => {
     const where = hole.lineNumber === undefined ? '' : `line ${hole.lineNumber}`;
     const detail = hole.suspect
       ? `<div class="suspect">$${escapeHtml(hole.suspect.emptyVariable)} was empty here</div>`

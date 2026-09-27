@@ -1,6 +1,8 @@
 import { readdir, stat, readFile } from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
 import type { FileChange } from './types';
+import { DEFAULT_IGNORED_DIRECTORIES } from './ignoreRules';
+import { BOOKKEEPING_DIRECTORY_NAME } from './scratch';
 
 export interface FileStamp {
   size: number;
@@ -9,7 +11,7 @@ export interface FileStamp {
 
 export type DirectorySnapshot = Map<string, FileStamp>;
 
-export const BOOKKEEPING_DIRECTORIES = new Set(['.bashle', '.git', 'node_modules']);
+export const BOOKKEEPING_DIRECTORIES = new Set([BOOKKEEPING_DIRECTORY_NAME, ...DEFAULT_IGNORED_DIRECTORIES]);
 
 const MAX_DIFFABLE_BYTES = 512 * 1024;
 const MAX_DIFFABLE_LINES = 4000;

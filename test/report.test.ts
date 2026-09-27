@@ -120,6 +120,27 @@ describe('buildReport', () => {
     expect(probe.changes[0]!.path).toBe('releases/log');
   });
 
+  it('lists holes suspect first, then open, then filled, so an editor need not sort them', () => {
+    const report = buildReport({
+      scriptPath: '/w/demo.sh',
+      source: 'x',
+      results: [
+        result({
+          holes: [
+            hole({ id: 1, state: 'filled' }),
+            hole({ id: 2 }),
+            hole({ id: 3, suspect: { emptyVariable: 'dest' } }),
+            hole({ id: 4, state: 'prefilled' }),
+            hole({ id: 5 }),
+          ],
+        }),
+      ],
+      errors: [],
+    });
+
+    expect(report.probes[0]!.holes.map((h) => h.id)).toEqual([3, 2, 5, 1, 4]);
+  });
+
   it('reports parse errors with one-based lines, as an editor expects', () => {
     const report = buildReport({
       scriptPath: '/w/demo.sh',

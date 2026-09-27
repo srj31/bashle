@@ -1,4 +1,5 @@
 import type { HoleKind, HoleRecord, LineExecution, Trace } from './types';
+import { unescapeDoubleQuoted, unquoteScalar } from './shellWords';
 
 export const RECORD_SEPARATOR = '\x1e';
 export const FIELD_SEPARATOR = '\x1f';
@@ -13,20 +14,9 @@ const TRACER_FUNCTION_NAME = '_bashle_debug';
 
 const DECLARE_ENTRY = /^declare\s+(-{1,2}\S*)\s+([A-Za-z_]\w*)(?:=([\s\S]*))?$/;
 const ARRAY_ELEMENT = /\[[^\]]*\]="((?:[^"\\]|\\.)*)"/g;
-const QUOTED_SCALAR = /^"([\s\S]*)"$|^'([\s\S]*)'$/;
-
-function unquoteDeclaredScalar(raw: string): string {
-  const quoted = QUOTED_SCALAR.exec(raw);
-  if (!quoted) return raw;
-  const wasDoubleQuoted = quoted[1] !== undefined;
-  const inner = quoted[1] ?? quoted[2] ?? '';
-  return wasDoubleQuoted ? inner.replace(/\\(["\\$`])/g, '$1') : inner;
-}
 
 function formatDeclaredArray(raw: string): string {
-  const elements = [...raw.matchAll(ARRAY_ELEMENT)].map((m) =>
-    (m[1] ?? '').replace(/\\(["\\$`])/g, '$1'),
-  );
+  const elements = [...raw.matchAll(ARRAY_ELEMENT)].map((m) => unescapeDoubleQuoted(m[1] ?? ''));
   const rendered = elements.map((value) => (/\s/.test(value) ? `"${value}"` : value));
   return `(${rendered.join(' ')})`;
 }
@@ -41,7 +31,7 @@ export function parseDeclareDump(dump: string): Record<string, string> {
     const [, flags = '', name = '', rawValue] = parsed;
     if (rawValue === undefined) continue;
     const isArray = flags.includes('a') || flags.includes('A');
-    values[name] = isArray ? formatDeclaredArray(rawValue) : unquoteDeclaredScalar(rawValue);
+    values[name] = isArray ? formatDeclaredArray(rawValue) : unquoteScalar(rawValue);
   }
   return values;
 }

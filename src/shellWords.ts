@@ -67,3 +67,19 @@ export function quoteShellWord(word: string): string {
   if (!NEEDS_QUOTING.test(word)) return word;
   return `'${word.split("'").join(`'\\''`)}'`;
 }
+
+/** Undoes the backslash escapes bash honours inside double quotes. */
+export function unescapeDoubleQuoted(inner: string): string {
+  return inner.replace(/\\(["\\$`])/g, '$1');
+}
+
+const QUOTED_SCALAR = /^"([\s\S]*)"$|^'([\s\S]*)'$/;
+
+/** Strips one layer of surrounding quotes from a single value; anything else is returned as is. */
+export function unquoteScalar(raw: string): string {
+  const quoted = QUOTED_SCALAR.exec(raw);
+  if (!quoted) return raw;
+  const wasDoubleQuoted = quoted[1] !== undefined;
+  const inner = quoted[1] ?? quoted[2] ?? '';
+  return wasDoubleQuoted ? unescapeDoubleQuoted(inner) : inner;
+}

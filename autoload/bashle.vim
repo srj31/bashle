@@ -316,9 +316,9 @@ function! s:hole_lines(probe) abort
     return []
   endif
   let l:lines = ['', 'holes']
-  " Suspect first: a hole that sits next to an empty variable is a bug to look
-  " at, not an input to supply, so its fill is not what should be offered first.
-  for l:hole in sort(copy(a:probe.holes), function('s:by_urgency'))
+  " The report lists holes suspect first: a hole that sits next to an empty
+  " variable is a bug to look at, not an input to supply.
+  for l:hole in a:probe.holes
     let l:mark = has_key(l:hole, 'suspect') ? '◇!' : '◇'
     let l:where = has_key(l:hole, 'lineNumber') ? '  line ' . l:hole.lineNumber : ''
     call add(l:lines, printf('  %s%d %s%s', l:mark, l:hole.id, l:hole.request, l:where))
@@ -336,12 +336,6 @@ function! s:hole_lines(probe) abort
           \ l:diagnostic.holeId, l:diagnostic.lineNumber))
   endfor
   return l:lines
-endfunction
-
-function! s:by_urgency(a, b) abort
-  let l:ra = has_key(a:a, 'suspect') ? 0 : (a:a.state ==# 'open' ? 1 : 2)
-  let l:rb = has_key(a:b, 'suspect') ? 0 : (a:b.state ==# 'open' ? 1 : 2)
-  return l:ra == l:rb ? a:a.id - a:b.id : l:ra - l:rb
 endfunction
 
 function! bashle#panel() abort

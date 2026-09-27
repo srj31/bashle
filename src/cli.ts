@@ -4,9 +4,9 @@ import { parseProbes } from './probeParser';
 import { discoverBash } from './bashDiscovery';
 import { runProbe } from './runner';
 import { formatInlineAnnotation, groupExecutionsByLine } from './annotations';
-import { holeLabel, renderHoleSentinels } from './holes';
+import { holeLabel, holesByUrgency, renderHoleSentinels } from './holes';
 import { buildReport } from './report';
-import type { Hole, RunResult } from './types';
+import type { RunResult } from './types';
 
 const DIM = '\x1b[2m';
 const RED = '\x1b[31m';
@@ -50,13 +50,8 @@ function printHoles(result: RunResult): void {
   const open = result.holes.filter((hole) => hole.state === 'open');
   if (result.holes.length === 0) return;
 
-  const ordered = [...result.holes].sort((a, b) => {
-    const rank = (hole: Hole) => (hole.suspect ? 0 : hole.state === 'open' ? 1 : 2);
-    return rank(a) - rank(b) || a.id - b.id;
-  });
-
   console.log(`\n${DIM}holes${RESET} ${DIM}(${open.length} open)${RESET}`);
-  for (const hole of ordered) {
+  for (const hole of holesByUrgency(result.holes)) {
     const where = hole.lineNumber === undefined ? '' : ` ${DIM}line ${hole.lineNumber}${RESET}`;
     const colour = hole.suspect ? YELLOW : hole.state === 'open' ? CYAN : DIM;
     console.log(`  ${colour}${holeLabel(hole)}${RESET} ${hole.request}${where}`);
