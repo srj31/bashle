@@ -23,11 +23,19 @@ statically. A test tells you *that* something failed. Neither shows you what bas
 Bashle does, on the line, the moment you save:
 
 ```bash
-dest=                              dest=''
-for f in $files; do                ×3  f='my report.txt'
-  cp "$f" "$dest/"                 cp 'my report.txt' '/'  ✗1
+# @probe staging => exit 0         ✗ expected exit 0 · got exit 1
+version=$(curl -s "$api/latest")   version=◇1
+dest="releases/$1/$version"        dest=releases/staging/◇1
+mkdir -p "$dest"                   mkdir -p releases/staging/◇1
+for f in $files; do                ×2  files='my report.txt'
+  cp "$f" "$dest/"                 ×2  cp report.txt releases/staging/◇1/  ✗1
 done
 ```
+
+The [probe](#probes) runs the script with `staging` as `$1` and expects exit 0. It got 1:
+`$files` held one filename with a space in it, so the loop ran twice, once per half, and neither
+half exists. `◇1` is the response `curl` would have fetched — a [hole](#holes). Bashle carries it
+forward instead of stopping, so you can see where it ends up: in a directory name.
 
 It runs the script for real, in a throwaway copy-on-write clone of your workspace, with the
 network denied and writes outside the clone blocked by the kernel.
