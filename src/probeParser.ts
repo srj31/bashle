@@ -307,10 +307,15 @@ const parseClockTag: TagParser = (block, offset, lineIndex) => {
   });
 };
 
+/**
+ * `# @stdin yes` is one line of input, newline included, like bash's
+ * `<<< yes`. Without the newline `read` stores the value but fails at EOF,
+ * which ends a script under `set -e`.
+ */
 const parseStdinTag: TagParser = (block, offset) => {
   const stdinTag = STDIN_TAG.exec(block[offset]!);
   return stdinTag
-    ? single({ kind: 'stdin', value: unquoteScalar((stdinTag[1] ?? '').trim()) })
+    ? single({ kind: 'stdin', value: `${unquoteScalar((stdinTag[1] ?? '').trim())}\n` })
     : null;
 };
 

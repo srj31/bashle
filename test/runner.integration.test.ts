@@ -519,6 +519,18 @@ describe('command holes', () => {
   });
 });
 
+describe('@stdin', () => {
+  it('feeds the text as one line, so read succeeds under set -e', async () => {
+    const result = await runScript(
+      ['# @stdin "yes"', '# @probe', 'set -euo pipefail', 'read -r answer', 'echo "got [$answer]"'].join(
+        '\n',
+      ),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe('got [yes]\n');
+  });
+});
+
 describe('an unfilled hole propagates', () => {
   it('carries the unknown through variables, commands and the files it creates', async () => {
     const result = await runScript(

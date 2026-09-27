@@ -53,7 +53,8 @@ describe('parseProbes', () => {
     const src = ['# @env TOKEN=abc', '# @env MODE=fast', '# @stdin "yes"', '# @probe go', 'echo'].join('\n');
     const p = parseProbes(src).probes[0]!;
     expect(p.env).toEqual({ TOKEN: 'abc', MODE: 'fast' });
-    expect(p.stdin).toBe('yes');
+    // One line of input, like bash's `<<< yes`: without the newline, `read` fails at EOF.
+    expect(p.stdin).toBe('yes\n');
   });
 
   it('keeps separate comment blocks from leaking modifiers into each other', () => {
