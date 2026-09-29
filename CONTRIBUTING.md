@@ -18,8 +18,8 @@ npm run probe -- examples/deploy.sh
  ⋮
  16 mkdir -p "$dest"                              mkdir -p releases/staging  dest=releases/staging
  17
- 18 for artifact in app.js styles.css readme md; do ×4  for artifact in app.js styles.css readme md  ✗1  artifact=readme
- 19   cp "artifacts/$artifact" "$dest/"           ×4  cp artifacts/md releases/staging/  ✗1  artifact=md  dest=releases/staging
+ 18 for artifact in app.js styles.css readme md; do for artifact in app.js styles.css readme md  ✗1  artifact=app.js · styles.css · readme · md
+ 19   cp "artifacts/$artifact" "$dest/"           cp artifacts/md releases/staging/  ✗1  artifact=app.js · styles.css · readme · md  dest=releases/staging · releases/staging · releases/staging · releases/staging
  ⋮
 files changed in the sandbox
   + releases/staging/app.js
@@ -29,8 +29,9 @@ exit 0 · ⛨ sandboxed
 ```
 
 `examples/deploy.sh` has a deliberate bug: `readme md` is unquoted, so it splits into two words and
-the loop runs **four** times instead of three. You can see it in the iteration count, in the failing
-`cp artifacts/md`, and in the Files list where `readme md` was never copied — and your real
+the loop runs **four** times instead of three. You can see it in the values `artifact` took, where
+`readme` and `md` are two, in the failing `cp artifacts/md`, and in the Files list where `readme md`
+was never copied — and your real
 `examples/` directory is untouched.
 
 ### In VS Code

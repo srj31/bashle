@@ -71,8 +71,8 @@ This is [`examples/backup.sh`](examples/backup.sh). Try it yourself.
 
 ## What you get
 
-- **Every line as bash ran it:** the command with its variables filled in, its exit code, how many
-  times it ran, and the values it used. Hover a line to see each run.
+- **Every line as bash ran it:** the command with its variables filled in, its exit code, and the
+  values it used, every one of them when it ran in a loop. Hover a line to see each run.
 - **Every file the script touched:** created, changed or deleted, with the changes shown. All of it
   in the copy, none in your project.
 - **No real network calls.** `curl`, `ssh`, `docker` and similar commands don't run. Each answer
@@ -89,13 +89,9 @@ bashle will find it. On Linux, install `bubblewrap` (`apt install bubblewrap`) f
 
 - **Cursor, VSCodium** and other editors that use [Open VSX](https://open-vsx.org/extension/srj31/bashle):
   search for *Bashle* in the Extensions view.
-- **VS Code** 1.85 or newer: install the `.vsix` from Open VSX, or build it:
-
-  ```bash
-  git clone https://github.com/srj31/bashle && cd bashle
-  npm install && npm run package
-  code --install-extension bashle-*.vsix
-  ```
+- **VS Code** 1.85 or newer: download the `.vsix` from
+  [Open VSX](https://open-vsx.org/extension/srj31/bashle) and run
+  `code --install-extension <the file you downloaded>`.
 
 - **Vim** or **the terminal**: see [Set up](docs/guide.md#set-up) in the guide.
 

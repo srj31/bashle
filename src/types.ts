@@ -51,7 +51,14 @@ export interface LineExecution {
   unexpanded?: string;
   exitCode?: number;
   vars?: Record<string, string>;
+  /** The variables once the command had finished, from the next snapshot taken in the same shell. */
+  varsAfter?: Record<string, string>;
   occurrenceIndex: number;
+  /**
+   * The line of the command whose `$( … )` this one ran inside, like the
+   * `echo` in `x=$(echo hi)`. On the same line, it is part of that line's run.
+   */
+  enclosingLine?: number;
 }
 
 export interface HoleRecord {

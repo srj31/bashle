@@ -41,13 +41,7 @@ You need:
   view and install it.
 - **VS Code** (1.85 or newer): download the `.vsix` file from
   [Open VSX](https://open-vsx.org/extension/srj31/bashle) and run
-  `code --install-extension <the file you downloaded>`. Or build it yourself:
-
-  ```bash
-  git clone https://github.com/srj31/bashle && cd bashle
-  npm install && npm run package
-  code --install-extension bashle-*.vsix
-  ```
+  `code --install-extension <the file you downloaded>`.
 
 ### Vim
 
@@ -117,7 +111,7 @@ That's all bashle asks of you: write a probe, then save.
 | `name=world` | A variable the line mentions, and its value just before the line ran. Up to three are shown. |
 | `'Hello, world'` | Quotes mean *one piece*: bash treated the value as a single argument, spaces and all. |
 | `✗1` | The command failed, with exit status 1. The note is shown in red. |
-| `×4` | The line ran 4 times (in a loop, say). The note shows the last time; hover to see each one. |
+| `f=a.txt · b.txt · c.txt` | The line ran more than once (in a loop, say), and `f` had each of these values, in order. On a line that sets `f`, like the loop's `for f in …`, they're the values it was set to. The rest of the note shows the last run; hover to see each one. A long list ends with `… +82 more`. |
 | `◇1` | A placeholder for something bashle couldn't know, like a download. See [holes](#network-calls-and-other-unknowns). |
 | `◇!1 $url was empty here` | A placeholder next to an empty variable, which is probably a bug. See [below](#when-a-hole-is-really-a-bug). |
 | *(no note)* | The line didn't run. |
@@ -130,9 +124,6 @@ cp $file "$backup_dir/"        cp reports/Q3 report.txt backup/  ✗1
 
 No quotes appear around `reports/Q3 report.txt`, so bash split the filename at the space and handed
 `cp` two arguments. `examples/backup.sh` has this bug if you want to try it.
-
-A line containing `$( … )` runs a command inside the line, so its count can read `×2` or `×3` even
-when it isn't in a loop.
 
 ### The result of a check
 
@@ -244,7 +235,7 @@ placeholder called a **hole**, shown as `◇1`, `◇2`, …, and lets the script
 ```bash
 # @probe staging
 set -euo pipefail
-version=$(curl -fsS "https://releases.example.com/latest")   ×3  version=◇1  ◇1
+version=$(curl -fsS "https://releases.example.com/latest")   version=◇1  ◇1
 dest="releases/$1-$version"                                  dest=releases/staging-◇1  version=◇1
 mkdir -p "$dest"                                             mkdir -p releases/staging-◇1  dest=releases/staging-◇1
 echo "$version" > "$dest/VERSION"                            echo ◇1  version=◇1  dest=releases/staging-◇1

@@ -81,10 +81,29 @@ class ExecutionLog {
     return this.last;
   }
 
-  private lastMatching(source: string, lineNumber: number): LineExecution | undefined {
-    const candidate = this.last;
-    if (!candidate) return undefined;
-    return candidate.source === source && candidate.lineNumber === lineNumber ? candidate : undefined;
+  /**
+   * The execution a record continues. Bash reports a command's expansion only
+   * once the substitutions in it have run, so anything that ran in a deeper
+   * subshell since, like the `echo` in `x=$(echo hi)`, is stepped over.
+   */
+  private lastMatching(source: string, lineNumber: number, subshellLevel: number): LineExecution | undefined {
+    for (let index = this.executions.length - 1; index >= 0; index--) {
+      const candidate = this.executions[index]!;
+      if (candidate.subshellLevel > subshellLevel) continue;
+      const matches =
+        candidate.source === source &&
+        candidate.lineNumber === lineNumber &&
+        candidate.subshellLevel === subshellLevel;
+      return matches ? candidate : undefined;
+    }
+    return undefined;
+  }
+
+  /** Everything after `outer` was stepped over to reach it, so it ran inside `outer`. */
+  private enclose(outer: LineExecution): void {
+    for (let index = this.executions.length - 1; this.executions[index] !== outer; index--) {
+      this.executions[index]!.enclosingLine ??= outer.lineNumber;
+    }
   }
 
   private start(execution: Omit<LineExecution, 'occurrenceIndex'>): LineExecution {
@@ -97,9 +116,18 @@ class ExecutionLog {
   }
 
   private attributeExitCodeToCommandBefore(announced: LineExecution, exitCode: number): void {
-    const announcedIndex = this.executions.lastIndexOf(announced);
-    const preceding = this.executions[announcedIndex - 1];
-    if (preceding && preceding.exitCode === undefined) preceding.exitCode = exitCode;
+    for (let index = this.executions.lastIndexOf(announced) - 1; index >= 0; index--) {
+      const preceding = this.executions[index]!;
+      // What ran inside another command finished before it did; $? is that command's.
+      if (preceding.enclosingLine !== undefined) continue;
+      // A subshell's first command inherits $? from its parent. If the parent
+      // command has not been expanded yet, the subshell is its `$( … )`, and
+      // the status is not the parent's: it has not finished.
+      const stillRunning =
+        preceding.subshellLevel < announced.subshellLevel && preceding.expanded === undefined;
+      if (!stillRunning && preceding.exitCode === undefined) preceding.exitCode = exitCode;
+      return;
+    }
   }
 
   recordDebug(record: {
@@ -112,15 +140,14 @@ class ExecutionLog {
     exitCodeOfPreviousCommand: number;
   }): void {
     const { exitCodeOfPreviousCommand, ...details } = record;
-    const alreadyOpen = this.lastMatching(details.source, details.lineNumber);
-    const announced =
-      alreadyOpen && alreadyOpen.unexpanded === undefined
-        ? Object.assign(alreadyOpen, {
-            unexpanded: details.unexpanded,
-            vars: details.vars,
-            subshellLevel: details.subshellLevel,
-          })
-        : this.start(details);
+    const alreadyOpen = this.lastMatching(details.source, details.lineNumber, details.subshellLevel);
+    let announced: LineExecution;
+    if (alreadyOpen && alreadyOpen.unexpanded === undefined) {
+      announced = Object.assign(alreadyOpen, { unexpanded: details.unexpanded, vars: details.vars });
+      this.enclose(announced);
+    } else {
+      announced = this.start(details);
+    }
     this.attributeExitCodeToCommandBefore(announced, exitCodeOfPreviousCommand);
   }
 
@@ -131,22 +158,55 @@ class ExecutionLog {
     nestingDepth: number;
     expanded: string;
   }): void {
-    const alreadyOpen = this.lastMatching(record.source, record.lineNumber);
+    const alreadyOpen = this.lastMatching(record.source, record.lineNumber, record.subshellLevel);
     if (alreadyOpen && alreadyOpen.expanded === undefined) {
       alreadyOpen.expanded = record.expanded;
       alreadyOpen.nestingDepth = record.nestingDepth;
+      this.enclose(alreadyOpen);
       return;
     }
     this.start(record);
   }
 
   closeWithFinalExit(exitCode: number): void {
-    const last = this.last;
-    if (last && last.exitCode === undefined) last.exitCode = exitCode;
+    closeLastCommand(this.executions, exitCode);
   }
 
   all(): LineExecution[] {
+    recordVariablesAfter(this.executions);
     return this.executions;
+  }
+}
+
+/** The script's status belongs to its last command, not to one that ran inside it. */
+function closeLastCommand(executions: LineExecution[], exitCode: number): void {
+  for (let index = executions.length - 1; index >= 0; index--) {
+    const last = executions[index]!;
+    if (last.enclosingLine !== undefined) continue;
+    if (last.exitCode === undefined) last.exitCode = exitCode;
+    return;
+  }
+}
+
+/**
+ * A command's variables once it had finished are the next snapshot taken in
+ * the same shell. One taken in a parent shell comes too late: the command was
+ * the last in its subshell, and whatever it set was lost when that exited.
+ */
+function recordVariablesAfter(executions: LineExecution[]): void {
+  // Subshell level → index of the nearest later execution at that level with a snapshot.
+  const nextSnapshotAt = new Map<number, number>();
+  for (let index = executions.length - 1; index >= 0; index--) {
+    const execution = executions[index]!;
+    let nearest: number | undefined;
+    for (const [level, snapshotIndex] of nextSnapshotAt) {
+      if (level <= execution.subshellLevel && (nearest === undefined || snapshotIndex < nearest)) {
+        nearest = snapshotIndex;
+      }
+    }
+    const next = nearest === undefined ? undefined : executions[nearest]!;
+    if (next && next.subshellLevel === execution.subshellLevel) execution.varsAfter = next.vars;
+    if (execution.vars) nextSnapshotAt.set(execution.subshellLevel, index);
   }
 }
 
@@ -225,8 +285,6 @@ export function parseTrace(raw: string, options: ParseTraceOptions = {}): Trace 
 }
 
 export function applyProcessExitCode(trace: Trace, exitCode: number | null): Trace {
-  const last = trace.executions[trace.executions.length - 1];
-  if (!last || last.exitCode !== undefined || exitCode === null) return trace;
-  last.exitCode = exitCode;
+  if (exitCode !== null) closeLastCommand(trace.executions, exitCode);
   return trace;
 }

@@ -20,7 +20,20 @@
   can't be read gives a warning and leaves the hole open. ([#9](https://github.com/srj31/bashle/issues/9))
 - Fixed: `@stdin` sent its text without a trailing newline, so `read` failed at end of input and a
   script under `set -e` stopped there. It is now one line of input, like bash's `<<<`.
+- A line that runs more than once no longer shows a `×N` count. Each variable on it lists every
+  value it had, in order, like `f=a.txt · b.txt · c.txt` on a loop, so you can see what the loop
+  went through. On the line that sets a variable, like `for f in …` or `total=$((total + 1))`, those
+  are the values it was set to. A long list ends with `… +N more`.
+- Fixed: a line with a command substitution, like `x=$(echo hi)`, counted as three executions, and
+  took a failed status from the command before it. It is now one run, with its own exit status.
+  ([#6](https://github.com/srj31/bashle/issues/6))
+- Variables assigned partway along a line, like `v` in `for i in 1 2; do v=$(echo $i); done`, are
+  now recorded, not only those assigned at the start of one.
+- Fixed: a heredoc opener with mismatched quotes, like `<<'EOF`, was taken as the fill's literal
+  value with no error. It is now reported on its line, and the fill is dropped.
+  ([#8](https://github.com/srj31/bashle/issues/8))
 - Docs: a shorter README that shows the problem first, and a new [guide](docs/guide.md) to using bashle.
+- Docs: installing for VS Code now points only to Open VSX.
 
 ## 0.1.0
 

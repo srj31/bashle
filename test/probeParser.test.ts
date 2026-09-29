@@ -96,6 +96,17 @@ describe('parseProbes', () => {
     expect(new Set(names).size).toBe(names.length);
   });
 
+  it('watches a variable assigned partway along a line, as in a one-line loop', () => {
+    const src = 'for i in 1 2; do v=$(echo $i); done\ntrue && w=1; (x=2)';
+    const names = parseProbes(src).watchableVariableNames;
+    expect(names).toEqual(expect.arrayContaining(['v', 'w', 'x']));
+  });
+
+  it('does not take an option or a comparison for an assignment', () => {
+    const src = 'sort --key=2 file\n[[ $a == b ]]';
+    expect(parseProbes(src).watchableVariableNames).toEqual(['a']);
+  });
+
   it('ignores @probe appearing inside a string rather than a comment', () => {
     expect(parseProbes('echo "# @probe fake"').probes).toHaveLength(0);
   });
@@ -192,11 +203,16 @@ describe('parseProbes', () => {
     expect(probes[0]!.fills[0]!.body).toBe('one\n');
   });
 
-  it.each(["<<'EOF", "<<EOF'", '<<\'EOF"'])('does not open a heredoc with mismatched quotes in %s', (opener) => {
-    const src = [`# @file a.conf => ${opener}`, '# @probe go', 'echo'].join('\n');
+  it.each(["<<'EOF", "<<EOF'", '<<\'EOF"'])('reports mismatched quotes in the heredoc opener %s', (opener) => {
+    const src = [`# @file a.conf => ${opener}`, '#   one', '# EOF', '# @probe go', 'echo'].join('\n');
     const { probes, errors } = parseProbes(src);
-    expect(errors).toEqual([]);
-    expect(probes[0]!.fills[0]!.body).toBe(opener);
+    expect(errors).toEqual([
+      {
+        lineIndex: 0,
+        message: `Mismatched quotes in heredoc opener \`${opener}\`. Use \`<<EOF\`, \`<<'EOF'\` or \`<<"EOF"\`.`,
+      },
+    ]);
+    expect(probes[0]!.fills).toEqual([]);
   });
 
   it('reports an unterminated heredoc on the line that opened it', () => {

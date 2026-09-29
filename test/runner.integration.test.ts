@@ -6,6 +6,7 @@ import { runProbe } from '../src/runner';
 import { parseProbes } from '../src/probeParser';
 import { discoverBash } from '../src/bashDiscovery';
 import { discoverContainment } from '../src/containment';
+import { buildReport } from '../src/report';
 import type { RunResult } from '../src/types';
 
 const PRELUDE = resolve(__dirname, '..', 'resources', 'prelude.sh');
@@ -575,5 +576,38 @@ describe('an unfilled hole propagates', () => {
 
     expect(result.holes).toHaveLength(1);
     expect(result.holes[0]!.suspect).toEqual({ emptyVariable: 'dest' });
+  });
+});
+
+describe('lines that run more than once', () => {
+  async function annotate(lines: string[]): Promise<Record<number, { text: string; failed: boolean }>> {
+    const source = lines.join('\n');
+    const result = await runScript(source);
+    const report = buildReport({ scriptPath: join(workspace, 'demo.sh'), source, results: [result], errors: [] });
+    return Object.fromEntries(report.probes[0]!.annotations.map(({ line, text, failed }) => [line, { text, failed }]));
+  }
+
+  it('shows every value a loop took, on its header and in its body', async () => {
+    const annotations = await annotate([
+      '# @probe',
+      'for f in a.txt b.txt c.txt; do',
+      '  total=$((total + 1))',
+      '  echo "$f"',
+      'done',
+    ]);
+    expect(annotations[2]!.text).toBe('for f in a.txt b.txt c.txt  f=a.txt · b.txt · c.txt');
+    expect(annotations[3]!.text).toBe('total=3  total=1 · 2 · 3');
+    expect(annotations[4]!.text).toBe('echo c.txt  f=a.txt · b.txt · c.txt');
+  });
+
+  it('shows a one-line loop with a substitution by its values, once per iteration', async () => {
+    const annotations = await annotate(['# @probe', 'for i in 1 2; do v=$(echo $i); done']);
+    expect(annotations[2]!.text).toBe('v=2  i=1 · 2  v=1 · 2');
+  });
+
+  it('shows a substitution after a failed command as one run that succeeded', async () => {
+    const annotations = await annotate(['# @probe', 'false', 'x=$(echo hi)', 'echo "$x"']);
+    expect(annotations[2]).toEqual({ text: 'false  ✗1', failed: true });
+    expect(annotations[3]).toEqual({ text: 'x=hi', failed: false });
   });
 });

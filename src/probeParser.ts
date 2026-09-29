@@ -133,9 +133,13 @@ function parseExpectation(
 
 /** `$name` or `${name` */
 const VARIABLE_REFERENCE = /\$\{?([A-Za-z_][A-Za-z0-9_]*)/g;
-/** `name=` or `name+=` at the start of a line, optionally after `local`, `export`, `readonly` or `declare -x` */
+/**
+ * `name=` or `name+=` where a command can start — the start of a line, or after
+ * `;`, `&&`, `||`, `|`, `(`, `{`, `do`, `then` or `else` — optionally after
+ * `local`, `export`, `readonly` or `declare -x`
+ */
 const VARIABLE_ASSIGNMENT =
-  /^\s*(?:local\s+|export\s+|readonly\s+|declare\s+(?:-\S+\s+)?)?([A-Za-z_][A-Za-z0-9_]*)\+?=/gm;
+  /(?:^|[;&|({]|\b(?:do|then|else)\b)\s*(?:local\s+|export\s+|readonly\s+|declare\s+(?:-\S+\s+)?)?([A-Za-z_][A-Za-z0-9_]*)\+?=/gm;
 /** `for name in` */
 const FOR_LOOP_VARIABLE = /\bfor\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\b/g;
 /** `read name`, skipping any flags before it */
@@ -197,6 +201,14 @@ const single = (tag: Tag): TagMatch => ({ tag, errors: [], linesConsumed: 1 });
 /** `<<EOF`, `<<'EOF'` or `<<"EOF"`; group 2 is the terminator. Quotes must match. */
 const HEREDOC_OPENER = /^<<\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1$/;
 
+/** The same shape with the quotes free to differ, to catch `<<'EOF`, `<<EOF'` and `<<'EOF"`. */
+const ANY_QUOTED_HEREDOC_OPENER = /^<<\s*(['"]?)[A-Za-z_][A-Za-z0-9_]*(['"]?)$/;
+
+function hasMismatchedHeredocQuotes(value: string): boolean {
+  const opener = ANY_QUOTED_HEREDOC_OPENER.exec(value);
+  return opener !== null && opener[1] !== opener[2];
+}
+
 /** Strips one leading `#` from each line, then the indent they share. */
 function dedentHeredoc(lines: string[]): string {
   if (lines.length === 0) return '';
@@ -251,8 +263,23 @@ const parseRequestFillTag: TagParser = (block, offset, lineIndex) => {
   const requestFill = matchRequestFill(block[offset]!);
   if (!requestFill) return null;
   const { args, expectation } = splitAtLastUnquotedArrow(requestFill.rest);
-  const heredoc = HEREDOC_OPENER.exec((expectation ?? '').trim());
+  const value = (expectation ?? '').trim();
 
+  // A typo in the opener would otherwise make the opener itself the body, and
+  // the lines meant as the body would pass as ordinary comments.
+  if (hasMismatchedHeredocQuotes(value)) {
+    return {
+      errors: [
+        {
+          lineIndex,
+          message: `Mismatched quotes in heredoc opener \`${value}\`. Use \`<<EOF\`, \`<<'EOF'\` or \`<<"EOF"\`.`,
+        },
+      ],
+      linesConsumed: 1,
+    };
+  }
+
+  const heredoc = HEREDOC_OPENER.exec(value);
   if (!heredoc) {
     return single({
       kind: 'fill',

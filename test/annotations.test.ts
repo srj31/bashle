@@ -22,13 +22,13 @@ describe('formatInlineAnnotation', () => {
     expect(formatInlineAnnotation([execution({ expanded: 'false', exitCode: 1 })], 'false')).toBe('false  ✗1');
   });
 
-  it('counts repeated executions and shows the last one', () => {
+  it('shows the last run of a repeated line, without counting them', () => {
     const executions = [
       execution({ expanded: 'echo one', occurrenceIndex: 0 }),
       execution({ expanded: 'echo two', occurrenceIndex: 1 }),
       execution({ expanded: 'echo three', occurrenceIndex: 2 }),
     ];
-    expect(formatInlineAnnotation(executions, 'echo "$n"')).toBe('×3  echo three');
+    expect(formatInlineAnnotation(executions, 'echo hi')).toBe('echo three');
   });
 
   it('appends only the variables the line actually mentions', () => {
@@ -56,7 +56,87 @@ describe('formatInlineAnnotation', () => {
   });
 });
 
+describe('formatInlineAnnotation on a line that ran more than once', () => {
+  const run = (unexpanded: string, over: Partial<LineExecution> = {}) =>
+    execution({ unexpanded, expanded: unexpanded, ...over });
+
+  it('lists every value a variable the line reads had, in order', () => {
+    const executions = ['a.txt', 'b.txt', 'c.txt'].map((f, occurrenceIndex) =>
+      run('echo "$f"', { expanded: `echo ${f}`, vars: { f }, occurrenceIndex }),
+    );
+    expect(formatInlineAnnotation(executions, '  echo "$f"')).toBe('echo c.txt  f=a.txt · b.txt · c.txt');
+  });
+
+  it('lists the values a loop assigned, as they were after each assignment', () => {
+    const header = 'for f in a.txt b.txt c.txt';
+    const executions = [
+      run(header, { vars: {}, varsAfter: { f: 'a.txt' } }),
+      run(header, { vars: { f: 'a.txt' }, varsAfter: { f: 'b.txt' } }),
+      run(header, { vars: { f: 'b.txt' }, varsAfter: { f: 'c.txt' } }),
+    ];
+    expect(formatInlineAnnotation(executions, `${header}; do`)).toBe(`${header}  f=a.txt · b.txt · c.txt`);
+  });
+
+  it('shows a value every time it occurred, even when it did not change', () => {
+    const executions = ['a', 'a', 'b'].map((f) =>
+      run('cp "$f" "$dest/"', { expanded: `cp ${f} /bak/`, vars: { f, dest: '/bak' } }),
+    );
+    expect(formatInlineAnnotation(executions, 'cp "$f" "$dest/"')).toBe(
+      'cp b /bak/  f=a · a · b  dest=/bak · /bak · /bak',
+    );
+  });
+
+  it("takes a one-line loop's variable only from the command that sets it", () => {
+    const executions = [
+      run('for i in 1 2', { vars: {}, varsAfter: { i: '1' } }),
+      run('echo $i', { expanded: 'echo 1', vars: { i: '1' } }),
+      run('for i in 1 2', { vars: { i: '1' }, varsAfter: { i: '2' } }),
+      run('echo $i', { expanded: 'echo 2', vars: { i: '2' } }),
+    ];
+    expect(formatInlineAnnotation(executions, 'for i in 1 2; do echo $i; done')).toBe('echo 2  i=1 · 2');
+  });
+
+  it('skips the commands that ran inside a substitution on the same line', () => {
+    const executions = [1, 2].flatMap((i) => [
+      run('for i in 1 2', { vars: {}, varsAfter: { i: `${i}` } }),
+      run('v=$(echo $i)', { expanded: `v=${i}`, vars: { i: `${i}` }, varsAfter: { i: `${i}`, v: `${i}` } }),
+      run('echo $i', { expanded: `echo ${i}`, vars: { i: `${i}` }, enclosingLine: 3 }),
+    ]);
+    expect(formatInlineAnnotation(executions, 'for i in 1 2; do v=$(echo $i); done')).toBe(
+      'v=2  i=1 · 2  v=1 · 2',
+    );
+  });
+
+  it('takes an assigned value from the assignment itself when no snapshot came after it', () => {
+    const executions = [
+      run('v=$(date)', { expanded: 'v=1', varsAfter: { v: '1' } }),
+      run('v=$(date)', { expanded: "v='a b'" }),
+    ];
+    expect(formatInlineAnnotation(executions, 'v=$(date)')).toBe("v='a b'  v=1 · 'a b'");
+  });
+
+  it('stops a long list after about 80 characters and says how many values are left', () => {
+    const executions = Array.from({ length: 100 }, (_, index) =>
+      run('echo "$i"', { expanded: `echo ${index + 1}`, vars: { i: `${index + 1}` } }),
+    );
+    expect(formatInlineAnnotation(executions, 'echo "$i"')).toBe(
+      'echo 100  i=1 · 2 · 3 · 4 · 5 · 6 · 7 · 8 · 9 · 10 · 11 · 12 · 13 · 14 · 15 · 16 · 17 · 18 · … +82 more',
+    );
+  });
+});
+
 describe('formatHoverMarkdown', () => {
+  it('numbers the runs and shows each assigned value as it was after that run', () => {
+    const header = 'for f in a b';
+    const executions = [
+      execution({ unexpanded: header, expanded: header, vars: {}, varsAfter: { f: 'a' }, occurrenceIndex: 0 }),
+      execution({ unexpanded: header, expanded: header, vars: { f: 'a' }, varsAfter: { f: 'b' }, occurrenceIndex: 2 }),
+    ];
+    const markdown = formatHoverMarkdown(executions, `${header}; do`);
+    expect(markdown).toContain(`1. \`${header}\` → exit 0  f=a`);
+    expect(markdown).toContain(`2. \`${header}\` → exit 0  f=b`);
+  });
+
   it('lists every execution of a repeated line', () => {
     const executions = [
       execution({ expanded: 'echo one', occurrenceIndex: 0, vars: { n: 'one' } }),
@@ -92,6 +172,16 @@ describe('groupExecutionsByLine', () => {
 
   it('returns an empty map for an empty trace', () => {
     expect(groupExecutionsByLine([]).size).toBe(0);
+  });
+
+  it("leaves out a command that ran inside a substitution on its own line, but not a function body it ran", () => {
+    const grouped = groupExecutionsByLine([
+      execution({ lineNumber: 6, expanded: 'w=in-f' }),
+      execution({ lineNumber: 6, expanded: 'f', enclosingLine: 6 }),
+      execution({ lineNumber: 5, expanded: 'echo in-f', enclosingLine: 6 }),
+    ]);
+    expect(grouped.get(6)!.map((e) => e.expanded)).toEqual(['w=in-f']);
+    expect(grouped.get(5)!.map((e) => e.expanded)).toEqual(['echo in-f']);
   });
 });
 

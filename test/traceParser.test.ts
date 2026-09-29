@@ -136,7 +136,81 @@ describe('parseTrace with real bash orderings', () => {
   });
 });
 
+describe('parseTrace with command substitutions', () => {
+  // `false; x=$(echo hi)` then `echo a`, in the order bash 5 emits it: the
+  // outer command's xtrace arrives only after the subshell's records, and the
+  // subshell's first DEBUG record carries the $? it inherited.
+  const substitution = [
+    dbg(1, 0, 'false'), xt(1, 'false'),
+    dbg(1, 1, 'x=$(echo hi)'),
+    dbg(1, 1, 'echo hi', '', 1), xt(1, 'echo hi', 1, 1),
+    xt(1, 'x=hi'),
+    dbg(2, 0, 'echo a', 'declare -- x="hi"'), xt(2, 'echo a'),
+  ].join('');
+  const line1 = () => parseTrace(substitution).executions.filter((e) => e.lineNumber === 1);
+
+  it('joins a command back together after the substitution inside it', () => {
+    expect(line1().map((e) => [e.unexpanded, e.expanded])).toEqual([
+      ['false', 'false'],
+      ['x=$(echo hi)', 'x=hi'],
+      ['echo hi', 'echo hi'],
+    ]);
+  });
+
+  it('marks the commands inside a substitution with the line of the command that ran it', () => {
+    expect(line1().map((e) => e.enclosingLine)).toEqual([undefined, undefined, 1]);
+  });
+
+  it('marks a function body run by a substitution too, though it sits on another line', () => {
+    // `w=$(f)` on line 6, with f's body on line 5.
+    const raw = [
+      dbg(6, 0, 'w=$(f)'),
+      dbg(6, 0, 'f', '', 1), xt(6, 'f', 1, 1),
+      dbg(5, 0, 'echo in-f', '', 1), xt(5, 'echo in-f', 1, 1),
+      xt(6, 'w=in-f'),
+      dbg(7, 3, 'echo', 'declare -- w="in-f"'), xt(7, 'echo'),
+    ].join('');
+    const t = parseTrace(raw);
+    expect(t.executions.map((e) => [e.lineNumber, e.enclosingLine, e.exitCode])).toEqual([
+      [6, undefined, 3],
+      [6, 6, 0],
+      [5, 6, undefined],
+      [7, undefined, undefined],
+    ]);
+  });
+
+  it('does not hand the $? a subshell inherits to the command that started it', () => {
+    expect(line1().map((e) => e.exitCode)).toEqual([1, 0, undefined]);
+  });
+
+  it('records the variables as they were once each command had finished', () => {
+    const outer = line1()[1]!;
+    expect(outer.varsAfter).toEqual({ x: 'hi' });
+  });
+
+  it('has no after-values for the last command of a subshell, whose changes do not survive it', () => {
+    const raw = dbg(1, 0, 'x=1', '', 1) + xt(1, 'x=1', 1, 1) + dbg(2, 0, 'echo', '') + xt(2, 'echo');
+    expect(parseTrace(raw).executions[0]!.varsAfter).toBeUndefined();
+  });
+
+  it('keeps a subshell that runs after a finished command on the same line separate from it', () => {
+    const raw = dbg(1, 0, 'x=5') + xt(1, 'x=5') + dbg(1, 0, 'echo $x', '', 1) + xt(1, 'echo 5', 1, 1);
+    expect(parseTrace(raw).executions.map((e) => e.enclosingLine)).toEqual([undefined, undefined]);
+  });
+
+  it('closes the command that started a substitution, not the one inside it, with the final exit', () => {
+    const raw = dbg(1, 0, 'x=$(false)') + dbg(1, 0, 'false', '', 1) + xt(1, 'false', 1, 1) + xt(1, 'x=') + `${RS}E${FS}1`;
+    expect(parseTrace(raw).executions.map((e) => e.exitCode)).toEqual([1, undefined]);
+  });
+});
+
 describe('applyProcessExitCode', () => {
+  it('closes the command that started a substitution, not the one inside it', () => {
+    const raw = dbg(1, 0, 'x=$(false)') + dbg(1, 0, 'false', '', 1) + xt(1, 'false', 1, 1) + xt(1, 'x=');
+    const trace = applyProcessExitCode(parseTrace(raw), 1);
+    expect(trace.executions.map((e) => e.exitCode)).toEqual([1, undefined]);
+  });
+
   it('closes the final execution with the exit code of the process', () => {
     const trace = applyProcessExitCode(parseTrace(dbg(1, 0, 'echo') + xt(1, 'echo')), 3);
     expect(trace.executions[0]!.exitCode).toBe(3);

@@ -66,8 +66,8 @@
         <text x="400" y="118" fill="#5C6B7D">version=<tspan fill="#D29922">◇1</tspan></text>
         <text x="400" y="152" fill="#5C6B7D">dest=releases/staging/<tspan fill="#D29922">◇1</tspan></text>
         <text x="400" y="186" fill="#5C6B7D">mkdir -p releases/staging/<tspan fill="#D29922">◇1</tspan></text>
-        <text x="400" y="220" fill="#5C6B7D"><tspan fill="#7D8FA3">×2</tspan>&#160;&#160;files='my report.txt'</text>
-        <text x="400" y="254" fill="#F85149">×2&#160;&#160;cp report.txt releases/staging/◇1/&#160;&#160;✗1</text>
+        <text x="400" y="220" fill="#5C6B7D">f=<tspan fill="#7D8FA3">my · report.txt</tspan></text>
+        <text x="400" y="254" fill="#F85149">cp report.txt releases/staging/◇1/&#160;&#160;✗1</text>
       </g>
     </g>
 
