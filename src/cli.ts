@@ -152,6 +152,7 @@ async function main(): Promise<number> {
       bashPath: bash.path,
       preludePath: resolve(__dirname, '..', 'resources', 'prelude.sh'),
       sandboxProfilePath: resolve(__dirname, '..', 'resources', 'sandbox.sb'),
+      shimsPath: resolve(__dirname, '..', 'resources', 'shims'),
       scriptPath,
       workspaceRoot: dirname(scriptPath),
       probe,

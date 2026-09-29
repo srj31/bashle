@@ -19,6 +19,8 @@ export interface RunProbeOptions {
   bashPath: string;
   preludePath: string;
   sandboxProfilePath: string;
+  /** The directory of shim files, `resources/shims`. */
+  shimsPath: string;
   scriptPath: string;
   workspaceRoot: string;
   probe: Probe;
@@ -88,7 +90,7 @@ function spawnTraced(
   },
 ): Promise<SpawnOutcome> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
+    const bashProcess = spawn(command, args, {
       cwd: spawnOptions.cwd,
       env: spawnOptions.env,
       detached: true,
@@ -100,17 +102,17 @@ function spawnTraced(
     const traceChunks: Buffer[] = [];
     let timedOut = false;
 
-    child.stdout?.on('data', (chunk: Buffer) => stdoutChunks.push(chunk));
-    child.stderr?.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
-    const extraDescriptors = child.stdio as unknown as Array<NodeJS.ReadableStream | null>;
+    bashProcess.stdout?.on('data', (chunk: Buffer) => stdoutChunks.push(chunk));
+    bashProcess.stderr?.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
+    const extraDescriptors = bashProcess.stdio as unknown as Array<NodeJS.ReadableStream | null>;
     extraDescriptors[TRACE_FILE_DESCRIPTOR]?.on('data', (chunk: Buffer) => traceChunks.push(chunk));
 
     const kill = () => {
-      if (!child.pid) return;
+      if (!bashProcess.pid) return;
       try {
-        process.kill(-child.pid, 'SIGKILL');
+        process.kill(-bashProcess.pid, 'SIGKILL');
       } catch {
-        child.kill('SIGKILL');
+        bashProcess.kill('SIGKILL');
       }
     };
     const killTimer = setTimeout(() => {
@@ -125,12 +127,12 @@ function spawnTraced(
     if (signal?.aborted) kill();
     else signal?.addEventListener('abort', kill, { once: true });
 
-    child.on('error', (error) => {
+    bashProcess.on('error', (error) => {
       stopWatching();
       reject(error);
     });
 
-    child.on('close', (exitCode) => {
+    bashProcess.on('close', (exitCode) => {
       stopWatching();
       resolve({
         stdout: Buffer.concat(stdoutChunks).toString('utf8'),
@@ -141,8 +143,8 @@ function spawnTraced(
       });
     });
 
-    if (spawnOptions.stdin !== undefined) child.stdin?.write(spawnOptions.stdin);
-    child.stdin?.end();
+    if (spawnOptions.stdin !== undefined) bashProcess.stdin?.write(spawnOptions.stdin);
+    bashProcess.stdin?.end();
   });
 }
 
@@ -163,16 +165,12 @@ export async function runProbe(options: RunProbeOptions): Promise<RunResult> {
   });
 
   try {
-    // Fixtures are read once, for every kind of fill, so a shim answers with
-    // the file's contents just as materialization writes them.
     const resolved = await resolveFixtures({
       fills: options.probe.fills,
       workspaceRoot: options.workspaceRoot,
     });
     warnings.push(...resolved.warnings);
 
-    // A fill is an input, not a result, so it lands before the baseline
-    // snapshot and never shows up in the Files tab as something the run made.
     const materialized = await materializeFileFills({
       fills: resolved.fills,
       workspaceRoot: options.workspaceRoot,
@@ -180,10 +178,12 @@ export async function runProbe(options: RunProbeOptions): Promise<RunResult> {
     });
     warnings.push(...materialized.warnings);
 
-    // Shims are generated for every name on every run, filled or not, because
-    // discovery has to work before anyone has written a fill.
     const shimDirectory = join(scratch.bookkeepingDirectory, 'bin');
-    await generateShims({ binDirectory: shimDirectory, fills: resolved.fills });
+    await generateShims({
+      binDirectory: shimDirectory,
+      sourceDirectory: options.shimsPath,
+      fills: resolved.fills,
+    });
 
     const before = await snapshotDirectory(scratch.root);
     const scriptInScratch = scratchPathFor(scratch, options.workspaceRoot, options.scriptPath);

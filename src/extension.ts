@@ -46,6 +46,7 @@ class BashleSession implements vscode.Disposable {
   private readonly statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
   private readonly preludePath: string;
   private readonly sandboxProfilePath: string;
+  private readonly shimsPath: string;
 
   private bash: DiscoveredBash | undefined;
   /** The run in flight. A newer run, or a clear, aborts it and kills its script. */
@@ -58,6 +59,7 @@ class BashleSession implements vscode.Disposable {
   constructor(context: vscode.ExtensionContext) {
     this.preludePath = join(context.extensionPath, 'resources', 'prelude.sh');
     this.sandboxProfilePath = join(context.extensionPath, 'resources', 'sandbox.sb');
+    this.shimsPath = join(context.extensionPath, 'resources', 'shims');
     this.statusBar.command = 'bashle.showPanel';
   }
 
@@ -123,6 +125,7 @@ class BashleSession implements vscode.Disposable {
             bashPath: bash.path,
             preludePath: this.preludePath,
             sandboxProfilePath: this.sandboxProfilePath,
+            shimsPath: this.shimsPath,
             scriptPath: document.uri.fsPath,
             workspaceRoot: workspaceRootFor(document),
             probe,

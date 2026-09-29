@@ -11,6 +11,7 @@ import type { RunResult } from '../src/types';
 
 const PRELUDE = resolve(__dirname, '..', 'resources', 'prelude.sh');
 const SANDBOX_PROFILE = resolve(__dirname, '..', 'resources', 'sandbox.sb');
+const SHIMS = resolve(__dirname, '..', 'resources', 'shims');
 
 let bashPath: string;
 let workspace: string;
@@ -38,6 +39,7 @@ async function runScript(
     bashPath,
     preludePath: PRELUDE,
     sandboxProfilePath: SANDBOX_PROFILE,
+    shimsPath: SHIMS,
     scriptPath,
     workspaceRoot: workspace,
     probe: parsed.probes[0]!,
@@ -312,6 +314,7 @@ describe('probes in a repository subdirectory', () => {
       bashPath,
       preludePath: PRELUDE,
       sandboxProfilePath: SANDBOX_PROFILE,
+      shimsPath: SHIMS,
       scriptPath,
       workspaceRoot: workspace,
       probe: parsed.probes[0]!,
@@ -339,6 +342,7 @@ describe('probes in a repository subdirectory', () => {
       bashPath,
       preludePath: PRELUDE,
       sandboxProfilePath: SANDBOX_PROFILE,
+      shimsPath: SHIMS,
       scriptPath,
       workspaceRoot: workspace,
       probe: parsed.probes[0]!,
@@ -364,6 +368,7 @@ describe('probes in a repository subdirectory', () => {
       bashPath,
       preludePath: PRELUDE,
       sandboxProfilePath: SANDBOX_PROFILE,
+      shimsPath: SHIMS,
       scriptPath,
       workspaceRoot: workspace,
       probe: parsed.probes[0]!,

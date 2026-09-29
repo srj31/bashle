@@ -186,7 +186,7 @@ which `[[ -f releases/x ]]` for determinate `x` is unanswerable, because `ι` mi
 
 | Formal object | Implementation |
 |---|---|
-| `ι` | the sentinel `\x01h<token>\x01` (`src/shims.ts`) |
+| `ι` | the sentinel `\x01h<token>\x01` (printed by `resources/shims/_preamble.sh`, matched in `src/shims.ts`) |
 | fresh-per-request | grouping by request in `assembleHoles` (`src/holes.ts`) |
 | `Γ` | `Fill[]`, compiled into shim branches |
 | FILL / OPEN | the two exits of a generated shim |
