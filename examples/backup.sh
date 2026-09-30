@@ -6,7 +6,7 @@
 file=$1
 backup_dir=backup
 
-rm -rf "$backupdir/partial"
+rm -rf "$backup_dir/partial"
 mkdir -p "$backup_dir"
-cp $file "$backup_dir/"
+cp "$file" "$backup_dir/"
 echo "backed up $file"

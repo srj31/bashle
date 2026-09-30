@@ -15,9 +15,9 @@ fi
 
 mkdir -p "$dest"
 
-for artifact in app.js styles.css readme md; do
+for artifact in app.js styles.css readme.md; do
   cp "artifacts/$artifact" "$dest/"
 done
 
-echo "deployed $target" > "$dest/status.txt"
+echo "deployed $target" >"$dest/status.txt"
 echo "deployed $target"

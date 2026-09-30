@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# @probe "a//b/../c" => "a/b/../c"
+# @probe "a//b/../c" => "a/b/../cj"
 collapse_slashes() {
   echo "${1//\/\//\/}"
 }
