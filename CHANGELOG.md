@@ -10,6 +10,8 @@
   instead of stepping to the next one. Neovim shows it in your usual picker. `3<Leader>bn` shows
   probe 3 directly, and `:BashleProbe` still steps through them.
 - Fixed: in Vim, saving again while a run was still going could drop the newer run's results.
+- A hole marked `◇!` keeps its `!` everywhere its value turns up, and in the "used as a number"
+  note, not only on the line that made it.
 - Files with more than one probe now show one probe's output at a time, so annotations from
   different probes no longer stack on the same line. In VS Code a lens above each `# @probe`
   switches between them; in Vim it is `:BashleProbe` (`<Leader>bn` to cycle, a number to pick

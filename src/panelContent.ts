@@ -1,5 +1,5 @@
 import type { FileChange, RunResult } from './types';
-import { holeLabel, holesByUrgency } from './holes';
+import { holeLabel, holeLabelById, holesByUrgency } from './holes';
 
 export function escapeHtml(text: string): string {
   return text
@@ -122,7 +122,7 @@ function renderHolesTab(results: RunResult[]): string {
   const diagnostics = results.flatMap((result) =>
     result.holeDiagnostics.map(
       (diagnostic) =>
-        `<p class="suspect">\u25c7${diagnostic.holeId} was used as a number on line ${diagnostic.lineNumber}.</p>`,
+        `<p class="suspect">${escapeHtml(holeLabelById(diagnostic.holeId, result.holes))} was used as a number on line ${diagnostic.lineNumber}.</p>`,
     ),
   );
 

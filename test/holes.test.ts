@@ -297,6 +297,15 @@ describe('assembleHoles', () => {
       );
     });
 
+    it('marks a suspect hole with ! wherever its value turns up, not only on its own line', () => {
+      const holes = twoHoles().map((hole) =>
+        hole.id === 2 ? { ...hole, suspect: { emptyVariable: 'mirror' } } : hole,
+      );
+      expect(renderHoleSentinels(`echo ${sentinel('2.1')} ${sentinel('1.1')}`, holes)).toBe(
+        'echo \u25c7!2 \u25c71',
+      );
+    });
+
     it('leaves text alone when it carries no sentinel', () => {
       expect(renderHoleSentinels("mkdir -p releases/staging", twoHoles())).toBe(
         'mkdir -p releases/staging',

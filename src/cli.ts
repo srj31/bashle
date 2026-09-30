@@ -4,7 +4,7 @@ import { parseProbes } from './probeParser';
 import { discoverBash } from './bashDiscovery';
 import { runProbe } from './runner';
 import { formatInlineAnnotation, groupExecutionsByLine } from './annotations';
-import { holeLabel, holesByUrgency, renderHoleSentinels } from './holes';
+import { holeLabel, holeLabelById, holesByUrgency, renderHoleSentinels } from './holes';
 import { buildReport } from './report';
 import type { RunResult } from './types';
 
@@ -75,7 +75,7 @@ function printHoles(result: RunResult): void {
 
   for (const diagnostic of result.holeDiagnostics) {
     console.log(
-      `  ${YELLOW}◇${diagnostic.holeId} was used as a number on line ${diagnostic.lineNumber}${RESET}`,
+      `  ${YELLOW}${holeLabelById(diagnostic.holeId, result.holes)} was used as a number on line ${diagnostic.lineNumber}${RESET}`,
     );
   }
 }

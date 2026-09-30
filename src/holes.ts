@@ -186,6 +186,12 @@ export function assembleHoles({ trace, changes }: AssembleHolesOptions): Assembl
 
 export const holeLabel = (hole: Hole): string => `${hole.suspect ? '\u25c7!' : '\u25c7'}${hole.id}`;
 
+/** The label for a hole known only by id, so a suspect hole keeps its ! there too. */
+export const holeLabelById = (id: number, holes: Hole[]): string => {
+  const hole = holes.find((candidate) => candidate.id === id);
+  return hole ? holeLabel(hole) : `\u25c7${id}`;
+};
+
 export function holesByUrgency(holes: Hole[]): Hole[] {
   const rank = (hole: Hole) => (hole.suspect ? 0 : hole.state === 'open' ? 1 : 2);
   return [...holes].sort((a, b) => rank(a) - rank(b) || a.id - b.id);
@@ -194,13 +200,13 @@ export function holesByUrgency(holes: Hole[]): Hole[] {
 const ANSI_C_QUOTED = /\$'((?:[^'\\]|\\.)*)'/g;
 
 export function renderHoleSentinels(text: string, holes: Hole[]): string {
-  const idByToken = new Map<string, number>();
-  for (const hole of holes) for (const token of hole.tokens) idByToken.set(token, hole.id);
+  const holeByToken = new Map<string, Hole>();
+  for (const hole of holes) for (const token of hole.tokens) holeByToken.set(token, hole);
 
   const replaceTokens = (value: string): string =>
     value.replace(holeSentinelMatcher(), (whole, raw?: string, escaped?: string) => {
-      const id = idByToken.get((raw ?? escaped)!);
-      return id === undefined ? whole : `\u25c7${id}`;
+      const hole = holeByToken.get((raw ?? escaped)!);
+      return hole === undefined ? whole : holeLabel(hole);
     });
 
   return replaceTokens(

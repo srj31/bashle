@@ -448,8 +448,10 @@ function! s:hole_lines(probe) abort
     endif
   endfor
   for l:diagnostic in a:probe.holeDiagnostics
-    call add(l:lines, printf('  ◇%d was used as a number on line %d',
-          \ l:diagnostic.holeId, l:diagnostic.lineNumber))
+    let l:suspect = !empty(filter(copy(a:probe.holes),
+          \ 'v:val.id == l:diagnostic.holeId && has_key(v:val, "suspect")'))
+    call add(l:lines, printf('  %s%d was used as a number on line %d',
+          \ l:suspect ? '◇!' : '◇', l:diagnostic.holeId, l:diagnostic.lineNumber))
   endfor
   return l:lines
 endfunction
