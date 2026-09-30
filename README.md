@@ -72,7 +72,7 @@ Save a `.sh` file to run it. Useful commands:
 | `:BashleRun` | `<Leader>br` | Run the probes (also runs on save) |
 | `:BashleInspect` | `<Leader>bi` | Show every run of the current line, in a popup |
 | `:BashlePanel` | `<Leader>bp` | Holes, changed files and output in a split |
-| `:BashleProbe` | `<Leader>bn` | Switch which probe's results are shown |
+| `:BashlePick` | `<Leader>bn` | Pick which probe's results to show, or all. `3<Leader>bn` jumps to probe 3 |
 
 On Vim 8.2 the panel and popup work, but there are no end-of-line notes.
 
@@ -178,6 +178,9 @@ curl -fsS "$api_url/health"    curl -fsS /health  ◇!1 $api_url was empty here
 ```
 
 Filling this one would just hide the mistake. Fix the variable.
+
+[`examples/release.sh`](examples/release.sh) shows both kinds, with one probe that leaves the
+download open and one that fills it.
 
 ## More
 

@@ -206,8 +206,11 @@ Put one per line in the same comment block. Each runs on its own, in a fresh cop
 ```
 
 To keep the notes readable, bashle shows one probe's results at a time. In VS Code, click the link
-above a probe's comment line to switch (*show*, *show all*, *show only this*). In Neovim and Vim, use
-`:BashleProbe` to step through them, `:BashleProbe 2` to pick one, or `:BashleProbe all` to show all.
+above a probe's comment line to switch (*show*, *show all*, *show only this*). In Neovim and Vim, press
+`<Leader>bn` for a list of probes marked ✓ or ✗, plus *all*. Pick one, or in Vim press its number.
+Neovim shows the list in your usual picker (Telescope, fzf-lua and so on). A count skips the list:
+`3<Leader>bn` shows probe 3. `:BashleProbe 2` and `:BashleProbe all` do the same from the command
+line, and `:BashleProbe` on its own steps to the next probe.
 Switching doesn't re-run anything.
 
 ### Environment variables and input
@@ -384,7 +387,8 @@ To set these for one project, put them in `.vscode/settings.json`. See
 | `:BashleRun` | `<Leader>br` | Run the probes in this file. Also happens on save. |
 | `:BashleInspect` | `<Leader>bi` | Show every run of the line under the cursor. |
 | `:BashlePanel` | `<Leader>bp` | Holes, changed files and output, in a split. |
-| `:BashleProbe` | `<Leader>bn` | Show the next probe. `:BashleProbe 2` picks one, `:BashleProbe all` shows every probe. |
+| `:BashlePick` | `<Leader>bn` | Pick a probe to show, or all. `3<Leader>bn` shows probe 3 directly. |
+| `:BashleProbe` | | Show the next probe. `:BashleProbe 2` picks one, `:BashleProbe all` shows every probe. |
 
 Options: `g:bashle_run_on_save` (default `1`), `g:bashle_node` (the `node` to use), `g:bashle_cli`
 (where the built CLI is). Colours follow the `BashleOk`, `BashleFailed` and `BashleHole` highlight

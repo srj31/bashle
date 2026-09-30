@@ -124,7 +124,13 @@ function! s:render(path, report) abort
 
   let l:last = len(getbufline(l:bufnr, 1, '$'))
   for l:probe in s:visible_probes(a:path, a:report)
-    for l:annotation in l:probe.annotations
+    " The check's result goes on the probe's own comment line, as in VS Code.
+    let l:notes = copy(l:probe.annotations)
+    if !empty(get(l:probe, 'verdictText', ''))
+      call add(l:notes, {'line': l:probe.line, 'text': l:probe.verdictText,
+            \ 'failed': l:probe.verdict.kind ==# 'fail'})
+    endif
+    for l:annotation in l:notes
       if l:annotation.line < 1 || l:annotation.line > l:last
         continue
       endif
@@ -305,6 +311,61 @@ function! bashle#probe(arg) abort
 
   call s:render(l:path, l:report)
   call s:announce(l:path, l:probes)
+endfunction
+
+" Pick a probe from a list rather than stepping through them. A count skips
+" the list: 3<Leader>bn shows probe 3.
+function! bashle#pick(count) abort
+  let l:path = expand('%:p')
+  let l:probes = get(get(s:reports, l:path, {}), 'probes', [])
+  if empty(l:probes)
+    echo 'bashle: no report yet — :BashleRun'
+    return
+  endif
+  if a:count > 0
+    call bashle#probe(string(a:count))
+    return
+  endif
+
+  let l:current = s:selection(l:path)
+  let l:items = []
+  for l:i in range(len(l:probes))
+    let l:verdict = get(l:probes[l:i], 'verdict', {})
+    let l:mark = get(l:verdict, 'kind', '') ==# 'pass' ? '✓'
+          \ : get(l:verdict, 'kind', '') ==# 'fail' ? '✗' : '·'
+    call add(l:items, printf('%s %d  %s  %s', l:i == l:current ? '●' : ' ',
+          \ l:i + 1, l:mark, l:probes[l:i].label))
+  endfor
+  call add(l:items, printf('%s all  %d probes', l:current < 0 ? '●' : ' ', len(l:probes)))
+
+  if has('nvim')
+    " vim.ui.select, so it opens in whichever picker the user has set up.
+    call luaeval('vim.ui.select(_A, {prompt = "bashle probe"}, function(_, i)'
+          \ . ' if i then vim.fn["bashle#probe"](i == #_A and "all" or tostring(i)) end'
+          \ . ' end)', l:items)
+  else
+    call popup_menu(l:items, {
+          \ 'title': ' bashle probe ', 'padding': [0, 1, 0, 1],
+          \ 'filter': function('s:pick_filter', [len(l:items)]),
+          \ 'callback': function('s:picked', [len(l:items)]),
+          \ })
+  endif
+endfunction
+
+" Digits choose directly in the Vim menu; everything else is the usual
+" j/k/Enter/Esc.
+function! s:pick_filter(total, id, key) abort
+  if a:key =~# '^[1-9]$' && str2nr(a:key) <= a:total
+    call popup_close(a:id, str2nr(a:key))
+    return 1
+  endif
+  return popup_filter_menu(a:id, a:key)
+endfunction
+
+function! s:picked(total, id, result) abort
+  if a:result > 0
+    call bashle#probe(a:result == a:total ? 'all' : string(a:result))
+  endif
 endfunction
 
 " ------------------------------------------------------------------ inspect

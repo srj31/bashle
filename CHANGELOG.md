@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- Neovim 0.5+ is supported, with the same commands as Vim. End-of-line notes are drawn as extmarks,
+  and `:BashleInspect` opens a floating window. Install with lazy.nvim or vim-plug; see the guide.
+- In Neovim and Vim, a probe's check result (`✓ passed in 33 ms` or `✗ expected … · got …`) now
+  appears on its `# @probe` line, as it does in VS Code.
+- In Neovim and Vim, `<Leader>bn` (`:BashlePick`) opens a list of probes marked ✓ or ✗, plus *all*,
+  instead of stepping to the next one. Neovim shows it in your usual picker. `3<Leader>bn` shows
+  probe 3 directly, and `:BashleProbe` still steps through them.
+- Fixed: in Vim, saving again while a run was still going could drop the newer run's results.
 - Files with more than one probe now show one probe's output at a time, so annotations from
   different probes no longer stack on the same line. In VS Code a lens above each `# @probe`
   switches between them; in Vim it is `:BashleProbe` (`<Leader>bn` to cycle, a number to pick

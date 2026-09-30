@@ -170,3 +170,25 @@ describe('buildReport', () => {
     expect(JSON.parse(JSON.stringify(report))).toEqual(report);
   });
 });
+
+describe('buildReport verdicts', () => {
+  const report = (over: Partial<RunResult>) =>
+    buildReport({ scriptPath: '/w/demo.sh', source: '# @probe x\necho x', results: [result(over)], errors: [] }).probes[0]!;
+
+  it('says which line the probe comment is on, so an editor can put the verdict there', () => {
+    expect(report({}).line).toBe(1);
+  });
+
+  it('renders a failed check the way VS Code shows it', () => {
+    const probe = report({ verdict: { kind: 'fail', expected: '"hi"', actual: '"bye"' } });
+    expect(probe.verdictText).toBe('✗ expected "hi" · got "bye"');
+  });
+
+  it('renders a passing check with its duration', () => {
+    expect(report({ verdict: { kind: 'pass' } }).verdictText).toBe('✓ passed in 12 ms');
+  });
+
+  it('renders nothing for a probe without a check', () => {
+    expect(report({}).verdictText).toBe('');
+  });
+});

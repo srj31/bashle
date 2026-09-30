@@ -1,5 +1,6 @@
 import { formatInlineAnnotation, formatHoverMarkdown, groupExecutionsByLine } from './annotations';
 import { holesByUrgency, renderHoleSentinels } from './holes';
+import { formatVerdict } from './verdict';
 import type { FileChange, Hole, HoleDiagnostic, ProbeParseError, RunResult, Verdict } from './types';
 
 /**
@@ -22,6 +23,10 @@ export interface ReportHover {
 
 export interface ReportProbe {
   label: string;
+  /** The 1-based line of the probe's `# @probe` comment, where the verdict belongs. */
+  line: number;
+  /** The verdict as the editor should show it, or empty when the probe has no check. */
+  verdictText: string;
   annotations: ReportAnnotation[];
   hovers: ReportHover[];
   holes: Hole[];
@@ -79,6 +84,8 @@ function probeReport(source: string, result: RunResult): ReportProbe {
 
   return {
     label: labelFor(result),
+    line: result.probe.commentLineIndex + 1,
+    verdictText: formatVerdict(result.verdict, result.durationMs),
     annotations,
     hovers,
     holes: holesByUrgency(result.holes),

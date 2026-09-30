@@ -34,6 +34,7 @@ command! BashleRun     call bashle#run()
 command! BashleClear   call bashle#clear()
 command! BashleInspect call bashle#inspect()
 command! BashlePanel   call bashle#panel()
+command! BashlePick    call bashle#pick(0)
 command! -nargs=? -complete=custom,bashle#probe_complete BashleProbe
       \ call bashle#probe(<q-args>)
 
@@ -53,4 +54,4 @@ endif
 nnoremap <silent> <Plug>(bashle-run)     :<C-u>BashleRun<CR>
 nnoremap <silent> <Plug>(bashle-inspect) :<C-u>BashleInspect<CR>
 nnoremap <silent> <Plug>(bashle-panel)   :<C-u>BashlePanel<CR>
-nnoremap <silent> <Plug>(bashle-probe)   :<C-u>BashleProbe<CR>
+nnoremap <silent> <Plug>(bashle-probe)   :<C-u>call bashle#pick(v:count)<CR>

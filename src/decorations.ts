@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { formatInlineAnnotation, formatHoverMarkdown, groupExecutionsByLine } from './annotations';
 import { visibleResults } from './probeSelection';
+import { formatVerdict } from './verdict';
 import type { Hole, LineExecution, RunResult, Selection } from './types';
 
 const INLINE_MARGIN = '0 0 0 2.5em';
@@ -76,18 +77,11 @@ export class AnnotationRenderer implements vscode.Disposable {
         (lastExitCode ? failed : succeeded).push(decoration);
       }
 
-      const verdictRange = this.endOfLine(document, result.probe.commentLineIndex);
-      if (result.verdict.kind === 'pass') {
-        passingVerdicts.push({
-          range: verdictRange,
-          renderOptions: { after: { contentText: `✓ passed in ${result.durationMs} ms` } },
-        });
-      } else if (result.verdict.kind === 'fail') {
-        failingVerdicts.push({
-          range: verdictRange,
-          renderOptions: {
-            after: { contentText: `✗ expected ${result.verdict.expected} · got ${result.verdict.actual}` },
-          },
+      const verdictText = formatVerdict(result.verdict, result.durationMs);
+      if (verdictText) {
+        (result.verdict.kind === 'fail' ? failingVerdicts : passingVerdicts).push({
+          range: this.endOfLine(document, result.probe.commentLineIndex),
+          renderOptions: { after: { contentText: verdictText } },
         });
       }
     }

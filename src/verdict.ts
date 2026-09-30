@@ -21,3 +21,10 @@ export function evaluateVerdict(
   if (actual === expected) return { kind: 'pass' };
   return { kind: 'fail', expected, actual };
 }
+
+/** The text shown after a probe's comment line: empty when the probe has no check. */
+export function formatVerdict(verdict: Verdict, durationMs: number): string {
+  if (verdict.kind === 'pass') return `✓ passed in ${durationMs} ms`;
+  if (verdict.kind === 'fail') return `✗ expected ${verdict.expected} · got ${verdict.actual}`;
+  return '';
+}
