@@ -13,13 +13,15 @@ let s:selected = {}
 let s:jobs = {}
 let s:types_defined = 0
 let s:panel_name = 'bashle-panel'
+" Neovim draws annotations as extmarks in this namespace, not text properties.
+let s:ns = has('nvim') ? nvim_create_namespace('bashle') : 0
 
 function! s:cli() abort
   return empty(g:bashle_cli) ? s:root . '/dist/cli.js' : g:bashle_cli
 endfunction
 
 function! s:define_types() abort
-  if s:types_defined || !g:bashle_has_virtual_text
+  if s:types_defined || !g:bashle_has_virtual_text || has('nvim')
     return
   endif
   " A missing highlight group makes prop_type_add throw, and losing the
@@ -60,6 +62,10 @@ endfunction
 
 function! s:clear_buffer(bufnr) abort
   if !g:bashle_has_virtual_text || a:bufnr < 0
+    return
+  endif
+  if has('nvim')
+    call nvim_buf_clear_namespace(a:bufnr, s:ns, 0, -1)
     return
   endif
   try
@@ -116,10 +122,18 @@ function! s:render(path, report) abort
     return
   endif
 
-  let l:last = line('$')
+  let l:last = len(getbufline(l:bufnr, 1, '$'))
   for l:probe in s:visible_probes(a:path, a:report)
     for l:annotation in l:probe.annotations
       if l:annotation.line < 1 || l:annotation.line > l:last
+        continue
+      endif
+      if has('nvim')
+        call nvim_buf_set_extmark(l:bufnr, s:ns, l:annotation.line - 1, 0, {
+              \ 'virt_text': [['  ' . l:annotation.text,
+              \                 l:annotation.failed ? 'BashleFailed' : 'BashleOk']],
+              \ 'virt_text_pos': 'eol',
+              \ })
         continue
       endif
       call prop_add(l:annotation.line, 0, {
@@ -135,19 +149,23 @@ endfunction
 " ------------------------------------------------------------------ running
 
 function! s:on_out(path, channel, message) abort
+  if !has_key(s:jobs, a:path) | return | endif
   let s:jobs[a:path].output .= a:message
 endfunction
 
 function! s:on_err(path, channel, message) abort
+  if !has_key(s:jobs, a:path) | return | endif
   let s:jobs[a:path].errors .= a:message
 endfunction
 
 function! s:on_exit(path, job, status) abort
   let l:state = get(s:jobs, a:path, {})
-  call remove(s:jobs, a:path)
-  if empty(l:state)
+  " A run that was replaced by a newer save still reports its exit; the newer
+  " run's state is not ours to consume.
+  if empty(l:state) || l:state.job isnot a:job
     return
   endif
+  call remove(s:jobs, a:path)
 
   if empty(trim(l:state.output))
     echohl WarningMsg
@@ -193,11 +211,29 @@ function! bashle#run() abort
   " A second save while the first run is still going would interleave two
   " reports for one file, so the earlier one is dropped.
   if has_key(s:jobs, l:path)
-    call job_stop(s:jobs[l:path].job)
+    let l:old = s:jobs[l:path].job
     call remove(s:jobs, l:path)
+    if has('nvim') | call jobstop(l:old) | else | call job_stop(l:old) | endif
   endif
 
   let l:command = [g:bashle_node, s:cli(), '--json', l:path]
+  if has('nvim')
+    " Buffered, so each callback gets the whole stream as a list of lines.
+    let l:job = jobstart(l:command, {
+          \ 'stdout_buffered': 1,
+          \ 'stderr_buffered': 1,
+          \ 'on_stdout': {id, data, _ -> s:on_out(l:path, id, join(data, "\n"))},
+          \ 'on_stderr': {id, data, _ -> s:on_err(l:path, id, join(data, "\n"))},
+          \ 'on_exit': {id, status, _ -> s:on_exit(l:path, id, status)},
+          \ })
+    if l:job <= 0
+      echohl WarningMsg | echomsg 'bashle: could not start ' . g:bashle_node | echohl None
+      return
+    endif
+    let s:jobs[l:path] = {'job': l:job, 'output': '', 'errors': ''}
+    return
+  endif
+
   let l:job = job_start(l:command, {
         \ 'out_cb': function('s:on_out', [l:path]),
         \ 'err_cb': function('s:on_err', [l:path]),
@@ -304,9 +340,28 @@ function! bashle#inspect() abort
     return
   endif
 
+  if has('nvim')
+    call s:float(l:lines)
+    return
+  endif
   call popup_atcursor(l:lines, {
         \ 'border': [], 'padding': [0, 1, 0, 1], 'moved': 'any', 'wrap': 0,
         \ })
+endfunction
+
+" Neovim's stand-in for popup_atcursor: a bordered float by the cursor that
+" closes as soon as the cursor moves.
+function! s:float(lines) abort
+  let l:buf = nvim_create_buf(0, 1)
+  call nvim_buf_set_lines(l:buf, 0, -1, 0, a:lines)
+  let l:width = max(map(copy(a:lines), 'strdisplaywidth(v:val)'))
+  let l:win = nvim_open_win(l:buf, 0, {
+        \ 'relative': 'cursor', 'row': 1, 'col': 0,
+        \ 'width': max([l:width, 1]), 'height': len(a:lines),
+        \ 'style': 'minimal', 'border': 'single',
+        \ })
+  execute printf('autocmd CursorMoved,CursorMovedI,BufLeave <buffer> ++once '
+        \ . 'if nvim_win_is_valid(%d) | call nvim_win_close(%d, 1) | endif', l:win, l:win)
 endfunction
 
 " -------------------------------------------------------------------- panel

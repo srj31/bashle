@@ -43,17 +43,19 @@ You need:
   [Open VSX](https://open-vsx.org/extension/srj31/bashle) and run
   `code --install-extension <the file you downloaded>`.
 
-### Vim
+### Neovim and Vim
 
-Needs Vim 9.0 or newer to show results at the end of lines. On Vim 8.2 the panel and the popup still
-work. You also need Node.js.
+Needs Neovim 0.5 or newer, or Vim 9.0 or newer to show results at the end of lines. On Vim 8.2 the
+panel and the popup still work. You also need Node.js.
 
-```vim
-Plug 'srj31/bashle'
+```lua
+-- lazy.nvim
+{ "srj31/bashle", build = "npm install && npm run build:cli", ft = "sh" }
 ```
 
-```bash
-cd ~/.vim/plugged/bashle && npm install && npm run build:cli
+```vim
+" vim-plug
+Plug 'srj31/bashle', { 'do': 'npm install && npm run build:cli' }
 ```
 
 ### The terminal
@@ -141,7 +143,7 @@ It appears on the `# @probe` line itself: `✓ passed in 44 ms`, or `✗ expecte
 - **The status bar** shows `⛨` when the sandbox is on and `⚠` when it isn't. See
   [Is it safe?](#is-it-safe)
 
-In Vim, `:BashleInspect` shows the hover for the line under the cursor, and `:BashlePanel` opens the
+In Neovim and Vim, `:BashleInspect` shows the hover for the line under the cursor, and `:BashlePanel` opens the
 panel.
 
 ## Writing probes
@@ -204,7 +206,7 @@ Put one per line in the same comment block. Each runs on its own, in a fresh cop
 ```
 
 To keep the notes readable, bashle shows one probe's results at a time. In VS Code, click the link
-above a probe's comment line to switch (*show*, *show all*, *show only this*). In Vim, use
+above a probe's comment line to switch (*show*, *show all*, *show only this*). In Neovim and Vim, use
 `:BashleProbe` to step through them, `:BashleProbe 2` to pick one, or `:BashleProbe all` to show all.
 Switching doesn't re-run anything.
 
@@ -224,7 +226,7 @@ for example with `read`.
 ### Mistakes in a probe
 
 If bashle can't understand a probe comment, it tells you rather than guessing. VS Code underlines
-the line, Vim prints a message, and the terminal prints `line N: …`.
+the line, Neovim and Vim print a message, and the terminal prints `line N: …`.
 
 ## Network calls and other unknowns
 
@@ -375,7 +377,7 @@ Each run is also stopped after 5 seconds (`bashle.timeoutMs`).
 To set these for one project, put them in `.vscode/settings.json`. See
 [Using bashle in a real repository](using-in-a-repository.md).
 
-### Vim
+### Neovim and Vim
 
 | Command | Keys | What it does |
 |---|---|---|
@@ -388,7 +390,7 @@ Options: `g:bashle_run_on_save` (default `1`), `g:bashle_node` (the `node` to us
 (where the built CLI is). Colours follow the `BashleOk`, `BashleFailed` and `BashleHole` highlight
 groups.
 
-Vim runs a saved file, not unsaved changes.
+Neovim and Vim run the saved file, not unsaved changes.
 
 ### The terminal
 
@@ -399,8 +401,8 @@ npm run probe -- --json script.sh    # the same results as JSON, for other tools
 
 It exits with status 1 if any check failed.
 
-**Vim and the terminal copy the script's own folder, not the whole project.** In both, paths the
-script uses are relative to the script's folder. Neither reads the VS Code settings: runs stop after
+**Neovim, Vim and the terminal copy the script's own folder, not the whole project.** In all of them, paths the
+script uses are relative to the script's folder. None of them reads the VS Code settings: runs stop after
 10 seconds, and the sandbox is always on.
 
 ## Troubleshooting

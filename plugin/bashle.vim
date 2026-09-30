@@ -8,17 +8,17 @@ if exists('g:loaded_bashle')
 endif
 let g:loaded_bashle = 1
 
-if !has('job') || !exists('*json_decode')
+if has('nvim') ? !has('nvim-0.5') : (!has('job') || !exists('*json_decode'))
   echohl WarningMsg
-  echomsg 'bashle: needs a Vim with +job and json_decode()'
+  echomsg 'bashle: needs Neovim 0.5+, or a Vim with +job and json_decode()'
   echohl None
   finish
 endif
 
-" Virtual text needs text properties, which arrived in Vim 9.0. Without them the
-" plugin still runs and still shows holes and files in the panel; it just cannot
-" put annotations at the end of the line.
-let g:bashle_has_virtual_text = has('textprop') && v:version >= 900
+" Virtual text needs text properties, which arrived in Vim 9.0 (Neovim draws it
+" with extmarks). Without them the plugin still runs and still shows holes and
+" files in the panel; it just cannot put annotations at the end of the line.
+let g:bashle_has_virtual_text = has('nvim') || (has('textprop') && v:version >= 900)
 
 let g:bashle_run_on_save = get(g:, 'bashle_run_on_save', 1)
 let g:bashle_node = get(g:, 'bashle_node', 'node')
